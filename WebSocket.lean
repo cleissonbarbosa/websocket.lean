@@ -214,6 +214,8 @@ def registerPong (t : Nat) (ps : PingState) : PingState := { ps with lastPong :=
 structure Transport where
   recv : IO ByteArray
   send : ByteArray → IO Unit
+  closed : IO Bool := pure false
+  close : IO Unit := pure ()
 
 structure Conn where
   transport : Transport
@@ -247,4 +249,51 @@ def handleIncoming (c : Conn) (bytes : ByteArray) : IO (Conn × List (OpCode × 
           pure ({ c with assembler := st' }, frames ++ [(.pong, data)])
         else
         pure ({ c with assembler := st' }, frames)
+
+/-- Incremental connection loop state (buffering undecoded bytes). -/
+structure LoopState where
+  conn : Conn
+  buffer : ByteArray := ByteArray.empty
+
+/-- Attempt to decode as many frames as possible from current buffer (no new I/O). -/
+def drainBuffer (ls : LoopState) : (LoopState × List (OpCode × ByteArray)) :=
+  /- We implement an auxiliary function that iteratively decodes frames using recursion on a natural fuel derived from buffer size.
+     This avoids needing well-founded reasoning on ByteArray directly. -/
+  let rec loop (fuel : Nat) (buf : ByteArray) (acc : List (OpCode × ByteArray)) (c : Conn) : (ByteArray × Conn × List (OpCode × ByteArray)) :=
+    match fuel with
+    | 0 => (buf, c, acc.reverse)
+    | Nat.succ fuel' =>
+        match decodeFrame buf with
+        | none => (buf, c, acc.reverse)
+        | some r =>
+            match processFrame c.assembler r.frame with
+            | .violation _ => (r.rest, c, acc.reverse)
+            | .continue st' => loop fuel' r.rest acc ({ c with assembler := st' })
+            | .message opc data st' => loop fuel' r.rest ((opc,data)::acc) ({ c with assembler := st' })
+  let fuel := ls.buffer.size.succ -- worst-case each frame consumes ≥1 byte of header progress
+  let (rest, c', events) := loop fuel ls.buffer [] ls.conn
+  ({ ls with conn := c', buffer := rest }, events)
+
+/-- Perform one I/O read then drain buffer. Returns new state and events. -/
+def stepIO (ls : LoopState) : IO (LoopState × List (OpCode × ByteArray)) := do
+  let bytes ← ls.conn.transport.recv
+  if bytes.size = 0 then
+    pure (ls, [])
+  else
+    let ls' := { ls with buffer := ls.buffer ++ bytes }
+    let (ls'', evs) := drainBuffer ls'
+    -- For each ping event produce pong immediately (mirror handleIncoming behavior)
+    for (opc,pl) in evs do
+      if opc = .ping then
+        ls''.conn.transport.send (encodeFrame (makePongFrame pl))
+    pure (ls'', evs)
+
+/-- Run up to `maxSteps` read iterations (stopping early if transport reports closed). -/
+partial def runLoop (ls : LoopState) (maxSteps : Nat := 1000) : IO LoopState := do
+  if maxSteps = 0 then return ls else
+  let closed ← ls.conn.transport.closed
+  if closed then return ls else
+  let (ls', _) ← stepIO ls
+  runLoop ls' (maxSteps - 1)
+-- runLoop is partial (bounded by maxSteps) so no termination proof needed beyond countdown.
 end WebSocket

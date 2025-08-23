@@ -25,7 +25,8 @@ Implemented pieces:
 
 Remaining / Next TODO:
 * Networking:
-	- Real TCP socket layer (likely via FFI wrapper) + integration loop (accept, read partial frames, assemble, dispatch).
+	- (IN PROGRESS) Native TCP socket FFI shim (`c/ws_socket.c`) + `WebSocket.Net` accept & handshake helpers.
+	- Integrate incremental loop with real socket transport (current shim returns raw bytes; still missing continuous event pump with backpressure / partial frame accumulation at transport layer).
 	- TLS / WSS support (likely via external library binding; out of pure Lean scope initially).
 * Protocol completeness:
 	- UTF‑8 validation for close reasons (current implementation validates text messages; close payload reason still permissive) + possibly stricter error mapping.
@@ -78,7 +79,37 @@ Run tests:
 lake exe tests
 ```
 
-Legacy demo stubs (echo client/server) were removed during refactors; current focus is library logic & tests. When networking lands these examples will reappear.
+Minimal echo server prototype (in-progress networking):
+```lean
+import WebSocket
+import WebSocket.Net
+open WebSocket WebSocket.Net
+
+def echoLoop (c : Conn) : IO Unit := do
+	let bytes ← c.transport.recv
+	if bytes.size = 0 then
+		IO.println "[conn] closed"
+	else
+		let (c', events) ← WebSocket.handleIncoming c bytes
+		for (opc,payload) in events do
+			if opc = .text then
+				let f : Frame := { header := { opcode := .text, masked := false, payloadLen := payload.size }, payload := payload }
+				c'.transport.send (encodeFrame f)
+		echoLoop c'
+
+def main : IO Unit := do
+	let lh ← openServer 9001
+	IO.println "Listening on 0.0.0.0:9001"
+	let rec acceptLoop : IO Unit := do
+		match ← acceptAndUpgrade lh with
+		| some c =>
+				IO.println "Handshake complete"
+				(echoLoop c) -- runs until close
+				acceptLoop
+		| none => IO.println "Handshake failed / timeout"; acceptLoop
+	acceptLoop
+```
+NOTE: This is a blocking, single-connection-at-a-time demonstration; no concurrency, fragmentation buffering done only inside `handleIncoming` for individual frames. Production design should spawn lightweight tasks per connection and use an incremental buffer reader.
 
 ## Usage (future planned API)
 ```lean

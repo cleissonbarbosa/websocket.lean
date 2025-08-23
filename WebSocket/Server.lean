@@ -60,10 +60,12 @@ def acceptConnection (server : ServerState) : IO (ServerState × Option ServerEv
     try
       match ← acceptAndUpgrade lh with
       | some tcpConn =>
+          -- Apply maxMessageSize from config to assembler
+          let tcpConn' : TcpConn := { tcpConn with assembler := { maxMessageSize? := some server.config.maxMessageSize } }
           let connId := server.nextConnId
           let connState : ConnectionState := {
             id := connId,
-            conn := tcpConn,
+            conn := tcpConn',
             addr := "127.0.0.1"  -- TODO: Get real peer address
           }
           let newServer := {

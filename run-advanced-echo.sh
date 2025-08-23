@@ -12,4 +12,6 @@ MAX_CONNS="${2:-50}"
 # Build if needed
 lake build advancedEchoServer >/dev/null
 
-exec lake exe advancedEchoServer "$PORT" "$MAX_CONNS"
+export WS_PORT="$PORT"
+export WS_MAX_CONNS="$MAX_CONNS"
+exec lake exe advancedEchoServer

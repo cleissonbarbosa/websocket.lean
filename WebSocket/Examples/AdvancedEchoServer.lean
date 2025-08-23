@@ -5,9 +5,18 @@ open WebSocket WebSocket.Server
 /-- Minimal advanced echo prototype (single connection, sequential loop). -/
 
 def main : IO Unit := do
-  -- CLI arg parsing disabled (IO.getArgs unavailable); using defaults
-  let port := 9001
-  let maxConns := 50
+  /- Since IO.getArgs is unavailable in this environment, read configuration
+     from environment variables set by the wrapper script:
+       WS_PORT       (default 9001)
+       WS_MAX_CONNS  (default 50)
+  -/
+  let defaultPort : Nat := 9001
+  let defaultMax : Nat := 50
+  let parseNat? : String → Option Nat := fun s => s.toNat?
+  let envPort? ← IO.getEnv "WS_PORT"
+  let envMax?  ← IO.getEnv "WS_MAX_CONNS"
+  let port := match envPort? with | some v => (parseNat? v).getD defaultPort | none => defaultPort
+  let maxConns := match envMax? with | some v => (parseNat? v).getD defaultMax | none => defaultMax
   let config : ServerConfig := {
     port := UInt32.ofNat port,
     maxConnections := maxConns,
@@ -33,7 +42,7 @@ def main : IO Unit := do
         | .continuation => IO.println s!"[print] continuation (ignored) from {id}"
     | .error id err => IO.println s!"Error from client {id}: {err}"
 
-  IO.println s!"Enhanced WebSocket server started on port {port}. Press Ctrl+C to stop."
+  IO.println s!"Enhanced WebSocket server started on port {port} (maxConnections={maxConns}). Press Ctrl+C to stop."
 
   -- For now, just handle one connection as a demonstration
   -- In a real server, you'd want proper concurrent connection handling

@@ -25,7 +25,12 @@ Module files (all under `WebSocket/` unless noted):
 | `Crypto/SHA1.lean` | SHA‑1 implementation used in handshake. |
 | `HTTP.lean` | Minimal HTTP request parser for upgrade. |
 | `Net.lean` (WIP) | FFI socket shim integration (listen/accept + `acceptAndUpgradeWithConfig`). |
-| `Server.lean` | Prototype high-level server (connection registry, broadcast helpers, blocking). |
+| `Server.lean` | Agregador que re-exporta submódulos de servidor. |
+| `Server/Types.lean` | Configuração (`ServerConfig`), eventos (`ServerEvent`), estados (`ServerState`, `ConnectionState`). |
+| `Server/Accept.lean` | Abertura de porta (`start`) e handshake/aceitação (`acceptConnection`). |
+| `Server/Process.lean` | Processamento de frames recebidos por conexão (`processConnection`). |
+| `Server/Messaging.lean` | Envio e broadcast (`sendMessage`, `sendText`, `broadcast*`, `stop`). |
+| `Server/Loop.lean` | Loop recursivo protótipo (`runServer`). |
 | `Protocol.lean` | Additional negotiation strategies + re-export of violation→close mapping. |
 
 Why a flat namespace? Keeping every module inside `namespace WebSocket` avoids breaking existing imports and simplifies referencing (no `WebSocket.Handshake.HandshakeRequest`, just `WebSocket.HandshakeRequest`). If future API versioning or hierarchical visibility is desired, we can introduce nested namespaces with compatibility aliases.

@@ -1,5 +1,4 @@
 import WebSocket.Core.Types
-
 namespace WebSocket
 
 namespace MaskingKey
@@ -23,7 +22,9 @@ def validateFrame (f : Frame) : Option ProtocolViolation :=
     if ¬ h.fin then some .controlFragmented
     else if h.payloadLen > 125 then some .controlTooLong
     else none
-  else none
+  else
+    -- Additional validation for data frames could be added here
+    none
 
 def encodeFrame (f : Frame) : ByteArray := Id.run do
   let mut out := ByteArray.empty
@@ -47,7 +48,7 @@ def encodeFrame (f : Frame) : ByteArray := Id.run do
     for shift in [56,48,40,32,24,16,8,0] do
       out := out.push (UInt8.ofNat ((len >>> shift) &&& 0xFF))
   let maskedPayload := match f.maskingKey? with
-    | some k => if f.header.masked then k.apply f.payload else f.payload
+    | some k => if f.header.masked then MaskingKey.apply k f.payload else f.payload
     | none => f.payload
   match f.maskingKey? with
   | some k => out := out.push k.b0; out := out.push k.b1; out := out.push k.b2; out := out.push k.b3
@@ -58,6 +59,71 @@ structure ParseResult where
   frame : Frame
   rest : ByteArray
 
+inductive ParseOutcome
+  | success (result : ParseResult)
+  | incomplete  -- Need more bytes
+  | violation (v : ProtocolViolation)
+
+/-- Enhanced decoder that can detect protocol violations -/
+partial def decodeFrameEnhanced (buf : ByteArray) : ParseOutcome := Id.run do
+  if buf.size < 2 then return .incomplete
+  let b0 := buf.get! 0; let b1 := buf.get! 1
+  let fin := (b0 &&& 0x80) != 0
+  let rsv1 := (b0 &&& 0x40) != 0
+  let rsv2 := (b0 &&& 0x20) != 0
+  let rsv3 := (b0 &&& 0x10) != 0
+  -- Check reserved bits
+  if rsv1 || rsv2 || rsv3 then return .violation .reservedBitsSet
+
+  let opcodeVal := b0 &&& 0x0F
+  let opcode? := match opcodeVal.toNat with
+  | 0 => some OpCode.continuation | 1 => some .text | 2 => some .binary
+  | 8 => some .close | 9 => some .ping | 10 => some .pong
+  | _ => none  -- Invalid opcode detected
+  let some opcode := opcode? | return .violation .invalidOpcode
+
+  let masked := (b1 &&& 0x80) != 0
+  let len7 := (b1 &&& 0x7F).toNat
+  let mut idx := 2
+  let (payloadLen?, idx') :=
+    if len7 < 126 then (some len7, idx)
+    else if len7 = 126 then
+      if buf.size < idx + 2 then (none, idx) else
+      let hi := buf.get! idx; let lo := buf.get! (idx+1)
+      (some ((hi.toNat <<< 8) + lo.toNat), idx + 2)
+    else
+      if buf.size < idx + 8 then (none, idx) else
+      let acc : Nat :=
+        (((buf.get! (idx)).toNat      ) <<< 56) +
+        (((buf.get! (idx+1)).toNat) <<< 48) +
+        (((buf.get! (idx+2)).toNat) <<< 40) +
+        (((buf.get! (idx+3)).toNat) <<< 32) +
+        (((buf.get! (idx+4)).toNat) <<< 24) +
+        (((buf.get! (idx+5)).toNat) <<< 16) +
+        (((buf.get! (idx+6)).toNat) <<< 8)  +
+        ((buf.get! (idx+7)).toNat)
+      (some acc, idx + 8)
+  let some payloadLen := payloadLen? | return .incomplete
+  idx := idx'
+
+  -- Validate control frames
+  if opcode.isControl then
+    if ¬ fin then return .violation .controlFragmented
+    if payloadLen > 125 then return .violation .controlTooLong
+
+  let (maskingKey?, idx'') := if masked then
+    if buf.size < idx + 4 then (none, idx) else
+      (some { b0 := buf.get! idx, b1 := buf.get! (idx+1), b2 := buf.get! (idx+2), b3 := buf.get! (idx+3) }, idx + 4)
+    else (none, idx)
+  idx := idx''
+  if buf.size < idx + payloadLen then return .incomplete
+  let slice := buf.extract idx (idx + payloadLen)
+  let payload := match maskingKey? with | some k => MaskingKey.apply k slice | none => slice
+  let header : FrameHeader := { fin := fin, rsv1 := rsv1, rsv2 := rsv2, rsv3 := rsv3, opcode := opcode, masked := masked, payloadLen := payloadLen }
+  let frame : Frame := { header := header, maskingKey? := maskingKey?, payload := payload }
+  let rest := buf.extract (idx + payloadLen) buf.size
+  return .success { frame := frame, rest := rest }
+
 partial def decodeFrame (buf : ByteArray) : Option ParseResult := Id.run do
   if buf.size < 2 then return none
   let b0 := buf.get! 0; let b1 := buf.get! 1
@@ -65,7 +131,8 @@ partial def decodeFrame (buf : ByteArray) : Option ParseResult := Id.run do
   let opcodeVal := b0 &&& 0x0F
   let opcode? := match opcodeVal.toNat with
   | 0 => some OpCode.continuation | 1 => some .text | 2 => some .binary
-  | 8 => some .close | 9 => some .ping | 10 => some .pong | _ => none
+  | 8 => some .close | 9 => some .ping | 10 => some .pong
+  | _ => none  -- Invalid opcode detected
   let some opcode := opcode? | return none
   let masked := (b1 &&& 0x80) != 0
   let len7 := (b1 &&& 0x7F).toNat
@@ -97,7 +164,7 @@ partial def decodeFrame (buf : ByteArray) : Option ParseResult := Id.run do
   idx := idx''
   if buf.size < idx + payloadLen then return none
   let slice := buf.extract idx (idx + payloadLen)
-  let payload := match maskingKey? with | some k => k.apply slice | none => slice
+  let payload := match maskingKey? with | some k => MaskingKey.apply k slice | none => slice
   let header : FrameHeader := { fin := fin, opcode := opcode, masked := masked, payloadLen := payloadLen }
   let frame : Frame := { header := header, maskingKey? := maskingKey?, payload := payload }
   let rest := buf.extract (idx + payloadLen) buf.size

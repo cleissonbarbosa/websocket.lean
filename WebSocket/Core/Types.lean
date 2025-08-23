@@ -54,6 +54,9 @@ inductive ProtocolViolation
   | reservedBitsSet
   | invalidOpcode
   | textInvalidUTF8
+  | invalidClosePayload
+  | oversizedMessage
+  | fragmentSequenceError
   deriving Repr, DecidableEq
 
 instance : ToString ProtocolViolation where
@@ -64,6 +67,9 @@ instance : ToString ProtocolViolation where
     | ProtocolViolation.reservedBitsSet => "reserved RSV bits set"
     | ProtocolViolation.invalidOpcode => "invalid opcode"
     | ProtocolViolation.textInvalidUTF8 => "invalid UTF-8 in text message"
+    | ProtocolViolation.invalidClosePayload => "invalid close frame payload"
+    | ProtocolViolation.oversizedMessage => "message too large"
+    | ProtocolViolation.fragmentSequenceError => "fragmentation sequence error"
 
 instance : Repr ByteArray where reprPrec b _ := s!"#ByteArray({b.size} bytes)"
 instance [Repr α] : Repr (Option α) where
@@ -81,7 +87,10 @@ def _protocolViolationConstructors : List ProtocolViolation := [
   ProtocolViolation.unexpectedContinuation,
   ProtocolViolation.reservedBitsSet,
   ProtocolViolation.invalidOpcode,
-  ProtocolViolation.textInvalidUTF8
+  ProtocolViolation.textInvalidUTF8,
+  ProtocolViolation.invalidClosePayload,
+  ProtocolViolation.oversizedMessage,
+  ProtocolViolation.fragmentSequenceError
 ]
 
 end WebSocket

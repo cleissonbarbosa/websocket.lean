@@ -199,7 +199,7 @@ def testFragmentation : IO Unit := do
   | _ => throw <| IO.userError "First frame not buffered"
 
 def testPingScheduler : IO Unit := do
-  let ps : WebSocket.PingState := { lastPing := 0, lastPong := 0, interval := 10 }
+  let ps : WebSocket.PingState := { lastPing := 0, lastPong := 0, interval := 10, strategy := .pingPong 10 3 }
   if WebSocket.duePing 5 ps then throw <| IO.userError "Ping too early" else pure ()
   if ¬ WebSocket.duePing 10 ps then throw <| IO.userError "Ping should be due" else pure ()
 
@@ -210,6 +210,32 @@ def testViolationClose : IO Unit := do
   | some info =>
       if info.code ≠ some .protocolError then throw <| IO.userError "Violation close code mismatch"
   | none => throw <| IO.userError "Failed to parse violation close frame"
+
+def testInvalidClosePayload : IO Unit := do
+  -- Test close frame with invalid UTF-8 in reason
+  let invalidUTF8 := ByteArray.mk #[0x03, 0xE8, 0xFF, 0xFE] -- Code 1000 + invalid UTF-8
+  match WebSocket.parseClosePayload invalidUTF8 with
+  | none => IO.println "Invalid close payload test passed"
+  | some _ => throw <| IO.userError "Expected none for invalid UTF-8 in close reason"
+
+def testKeepAliveEnhanced : IO Unit := do
+  let ps : WebSocket.PingState := { lastPing := 0, lastPong := 0, interval := 10, maxMissedPongs := 2, missedPongs := 0, strategy := .pingPong 10 2 }
+  if WebSocket.connectionDead ps then throw <| IO.userError "Connection should not be dead initially"
+
+  let ps1 := WebSocket.registerPing 10 ps
+  if ps1.missedPongs ≠ 1 then throw <| IO.userError "Should have 1 missed pong after ping"
+
+  let ps2 := WebSocket.registerPing 20 ps1
+  if ps2.missedPongs ≠ 2 then throw <| IO.userError "Should have 2 missed pongs"
+
+  let ps3 := WebSocket.registerPing 30 ps2
+  if ¬ WebSocket.connectionDead ps3 then throw <| IO.userError "Connection should be considered dead"
+
+  -- Test pong resetting missed count
+  let ps4 := WebSocket.registerPong 35 ps2
+  if ps4.missedPongs ≠ 0 then throw <| IO.userError "Pong should reset missed count"
+
+  IO.println "Enhanced keepalive test passed"
 
 def main : IO Unit := do
   testMasking; testEncodeDecode; testHandshake; testSHA1Vector
@@ -222,4 +248,9 @@ def main : IO Unit := do
   match WebSocket.processFrame {} fBad with
   | .violation .textInvalidUTF8 => IO.println "UTF-8 invalid test passed"
   | _ => throw <| IO.userError "Expected textInvalidUTF8"
+
+  -- Test new protocol violations
+  testInvalidClosePayload
+  testKeepAliveEnhanced
+
   IO.println "All tests done"

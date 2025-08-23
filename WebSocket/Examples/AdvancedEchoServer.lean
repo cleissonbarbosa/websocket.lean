@@ -44,33 +44,46 @@ def main : IO Unit := do
 
   IO.println s!"Enhanced WebSocket server started on port {port} (maxConnections={maxConns}). Press Ctrl+C to stop."
 
-  -- For now, just handle one connection as a demonstration
-  -- In a real server, you'd want proper concurrent connection handling
-  let (server', eventOpt) ← acceptConnection server
-  match eventOpt with
-  | some event =>
-      handleEvent event
-      match event with
-      | .connected connId _ =>
-          let mut cur := server'
-          for _ in [0:10] do
-            let (cur', events) ← processConnection cur connId
-            cur := cur'
-            for ev in events do
-              match ev with
-              | .message cid .text payload =>
-                  handleEvent ev
-                  let msg := String.fromUTF8! payload
-                  cur ← sendText cur cid s!"Echo: {msg}"
-              | .message cid .binary payload =>
-                  handleEvent ev
-                  cur ← sendBinary cur cid payload
-              | _ => handleEvent ev
-            IO.sleep 500
-      | _ => pure ()
-  | none => IO.println "Failed to accept connection"
+  /- Simple loop:
+     1. Repeatedly call acceptConnection until a client connects.
+     2. Then poll that connection for messages, echoing text & binary.
+     3. After a fixed number of idle iterations, exit.
+  -/
+  let rec waitForClient (s : ServerState) (tries : Nat := 200) : IO (ServerState × Option Nat) := do
+    if tries = 0 then return (s, none) else
+    let (s', ev?) ← acceptConnection s
+    match ev? with
+    | some (.connected cid _) => return (s', some cid)
+    | some ev =>
+        handleEvent ev
+        IO.sleep 50
+        waitForClient s' (tries - 1)
+    | none =>
+        IO.sleep 50
+        waitForClient s' (tries - 1)
 
-  match eventOpt with
-  | some _ => stop server'
-  | none => pure ()
+  let (server', connId?) ← waitForClient server
+  match connId? with
+  | none =>
+      IO.println "No client connected (timeout). Stopping server."
+      stop server'
+  | some cid =>
+      IO.println s!"Client {cid} connected; entering echo loop"
+      let mut cur := server'
+      for _ in [0:400] do
+        let (cur', events) ← processConnection cur cid
+        cur := cur'
+        for ev in events do
+          match ev with
+          | .message id .text payload =>
+              handleEvent ev
+              let msg := String.fromUTF8! payload
+              cur ← sendText cur id s!"Echo: {msg}"
+          | .message id .binary payload =>
+              handleEvent ev
+              cur ← sendBinary cur id payload
+          | _ => handleEvent ev
+        IO.sleep 50
+      IO.println "Loop complete; stopping server"
+      stop cur
   IO.println "Server stopped"

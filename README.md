@@ -10,21 +10,23 @@ Module files (all under `WebSocket/` unless noted):
 | File | Responsibility |
 |------|----------------|
 | `Core/Types.lean` | Core protocol types: `OpCode`, `FrameHeader`, `Frame`, `ProtocolViolation`, masking key, etc. |
-| `Core/Frames.lean` | Encode/decode logic + validation (`encodeFrame`, `decodeFrame`, `validateFrame`). |
+| `Core/Frames.lean` | Encode/decode logic + validation (`encodeFrame`, `decodeFrameEnhanced` / `decodeFrame`, `validateFrame`). |
 | `Handshake.lean` | Handshake request/response models, header utilities, `acceptKey`. |
 | `Upgrade.lean` | High-level upgrade functions (`upgradeE`, `upgrade`, `upgradeWithConfig`, `upgradeWithFullConfig`, `upgradeRaw`). |
 | `Subprotocols.lean` | Subprotocol negotiation (`SubprotocolConfig`, `selectSubprotocol`). |
 | `Extensions.lean` | Parsing + negotiation scaffolding for `Sec-WebSocket-Extensions`. |
 | `Close.lean` | Close codes + `parseClosePayload`. |
 | `Assembler.lean` | Fragmentation reassembly and close-frame builders (`processFrame`, `buildCloseFrame*`). |
-| `Connection.lean` | Minimal transport abstraction + frame handling loop (`Transport`, `Conn`, `runLoop`, `handleIncoming`). |
+| `Connection.lean` | Minimal transport abstraction + frame handling loop (`Transport`, `Conn`, `runLoop`, `handleIncoming` w/ enhanced decoder + auto-close on violation). |
 | `KeepAlive.lean` | Ping/pong strategy + state (`PingState`, `KeepAliveStrategy`). |
 | `Random.lean` | Simple deterministic RNG for masking fuzz (`RNG`, `randomMaskingKey`). |
 | `UTF8.lean` | UTF‑8 validation used for text frames & close reasons. |
 | `Crypto/Base64.lean` | Base64 implementation used in handshake. |
 | `Crypto/SHA1.lean` | SHA‑1 implementation used in handshake. |
 | `HTTP.lean` | Minimal HTTP request parser for upgrade. |
-| `Net.lean` (WIP) | FFI socket shim integration (accept + upgrade helpers). |
+| `Net.lean` (WIP) | FFI socket shim integration (listen/accept + `acceptAndUpgradeWithConfig`). |
+| `Server.lean` | Prototype high-level server (connection registry, broadcast helpers, blocking). |
+| `Protocol.lean` | Additional negotiation strategies + re-export of violation→close mapping. |
 
 Why a flat namespace? Keeping every module inside `namespace WebSocket` avoids breaking existing imports and simplifies referencing (no `WebSocket.Handshake.HandshakeRequest`, just `WebSocket.HandshakeRequest`). If future API versioning or hierarchical visibility is desired, we can introduce nested namespaces with compatibility aliases.
 
@@ -52,15 +54,16 @@ Implemented pieces (now organized across modules):
 * Minimal HTTP request parser + convenience `upgradeRaw`.
 * Control frame validation (FIN requirement, payload ≤125) and close frame construction / parsing with a subset of RFC close codes.
 * Fragmentation assembler for continuation frames (reassembles text/binary messages, enforces control frame rules early).
-* Protocol violation classification (initial subset) and mapping to close frames.
+* Protocol violation classification (subset) and concrete mapping to RFC close codes (UTF‑8 → 1007, size limit → 1009, structural → 1002) with automatic close frame emission.
 * Ping scheduler state (interval tracking) + basic tests.
 * Deterministic pseudo‑random masking key generator (xorshift32) for fuzz / property tests.
 * UTF‑8 validation for text frames (rejects overlongs, surrogates, invalid sequences) both single and fragmented message reassembly.
 * Subprotocol negotiation (`Subprotocols.lean`) with configurable selection function.
 * Extension parsing + conservative negotiation scaffolding (`Extensions.lean`).
 * Automatic pong generation upon receiving ping frames (within `handleIncoming`).
-* Additional protocol violations surfaced: `unexpectedContinuation`, `textInvalidUTF8`.
-* Comprehensive test suite: masking, encode/decode (masked & extended lengths), handshake RFC example, SHA‑1 vector, control frame validation, raw HTTP upgrade, upgrade error paths, close frame parsing, fragmentation sequence, ping scheduler, violation→close mapping, UTF‑8 invalid cases, subprotocol negotiation, unexpected continuation, auto‑pong.
+* Enhanced frame decoder (`decodeFrameEnhanced`) integrated into connection loop (detects reserved bits & invalid opcodes early).
+* Additional protocol violations surfaced: `unexpectedContinuation`, `textInvalidUTF8`, `fragmentSequenceError`, `oversizedMessage`.
+* Comprehensive test suite: masking, encode/decode (masked & extended lengths), handshake RFC example, SHA‑1 vector, control frame validation, raw HTTP upgrade, upgrade error paths, close frame parsing, fragmentation sequence, ping scheduler, violation→close mapping, UTF‑8 invalid cases, subprotocol negotiation, unexpected continuation, auto‑pong, invalid opcode, size limit & fragmentation errors, keepalive logic.
 
 Remaining / Next TODO (updated after modular split):
 * Networking:
@@ -72,7 +75,7 @@ Remaining / Next TODO (updated after modular split):
 	- Advanced subprotocol selection policies (server ordering, rejection rules already partially configurable via `SubprotocolConfig`).
 	- Extension negotiation beyond structural parsing (e.g. permessage-deflate parameters, compression toggles).
 	- Keepalive: integrate timing + missed pong tracking (`PingState` base exists) with loop scheduling (strategy + missed pong counter implemented; not yet wired into loop timing logic).
-	- Additional violation detection: reserved bits (DONE), invalid opcodes (DONE), unexpected continuation (DONE), text invalid UTF‑8 (DONE), close payload validation (DONE), fragmentation sequencing (NEW: `fragmentSequenceError`), size thresholds (NEW: `oversizedMessage` with configurable max message size in `AssemblerState`), remaining: reserved bit semantics for negotiated extensions.
+	- Additional violation detection: reserved bits (DONE), invalid opcodes (DONE), unexpected continuation (DONE), text invalid UTF‑8 (DONE), close payload validation (DONE), fragmentation sequencing (DONE: `fragmentSequenceError`), size thresholds (DONE: `oversizedMessage` with configurable max message size), remaining: reserved bit semantics for negotiated extensions.
 	- Close handshake helper (bidirectional close, timeout & draining).
 * Formal verification / proofs:
 	- Replace masking involution axiom with a proof (now isolated in `Core/Frames.lean`).
@@ -90,7 +93,7 @@ Remaining / Next TODO (updated after modular split):
 	- Resource cleanup / graceful shutdown orchestration.
 * Performance / ergonomics:
 	- Optimize SHA‑1 and Base64 (current versions are clarity-oriented).
-	- Streaming decode (incremental) rather than whole-buffer decode.
+	- Streaming decode (incremental) rather than whole-buffer decode (infra parcial: draining buffer + decoder aprimorado; falta integração completa no servidor e multiplexação).
 	- ByteArray builder utilities / zero‑copy slices.
 * Documentation:
 	- Protocol state machine outline (opening → open → closing → closed).
@@ -111,14 +114,14 @@ lake exe tests
 ```
 Add new tests in `WebSocket/Tests/`—they can import only the modules they exercise (but `import WebSocket` still works as a shortcut).
 
-## Roadmap ( condensed )
-1. Socket + incremental I/O layer; streaming decoder.
-2. UTF‑8 & additional protocol validations (reserved bits, opcode range, continuation sequencing).
-3. High‑level server/client API with clean close handshake management.
-4. Formal proofs (masking involution → roundtrip → length safety) & property-based fuzz harness.
-5. Subprotocol / extension negotiation stubs.
-6. Automatic pong + keepalive strategy and liveness reasoning sketch.
-7. Performance passes (buffer reuse, optimized crypto) once semantics solid.
+## Roadmap (condensed / updated)
+1. Integrate incremental buffered loop into server (multi-connection, non-blocking); concurrency & graceful shutdown primitives.
+2. Close handshake orchestration (bidirectional: respond + drain + timeout) and structured disconnect events w/ code & reason.
+3. Keepalive runtime: timed ping emission + missed pong policy using existing `PingState`.
+4. Client implementation (connect + HTTP upgrade + validate response headers & negotiated subprotocol/extensions).
+5. Extension semantics (permessage-deflate stub, RSV bit enforcement) and documentation of extension safety.
+6. Formal proofs: masking involution → frame roundtrip → length safety; property-based fuzz harness (fragmentation, masking, random sizes).
+7. Performance passes: buffer reuse, zero-copy slices, optimized SHA‑1/Base64.
 
 ## Building
 Requires Lean 4 toolchain (see `lean-toolchain`).
@@ -153,11 +156,12 @@ def echoLoop (c : Conn) : IO Unit := do
 def main : IO Unit := do
 	let lh ← openServer 9001
 	IO.println "Listening on 0.0.0.0:9001"
+	let cfg : UpgradeConfig := { subprotocols := { supported := ["chat.v1"], rejectOnNoMatch := false } }
 	let rec acceptLoop : IO Unit := do
-		match ← acceptAndUpgrade lh with
-		| some c =>
-				IO.println "Handshake complete"
-				(echoLoop c) -- runs until close
+		match ← acceptAndUpgradeWithConfig lh cfg with
+		| some (tcpConn, subp?, _) =>
+				IO.println s!"Handshake complete (subprotocol?={subp?})"
+				(echoLoop (tcpConn : Conn))
 				acceptLoop
 		| none => IO.println "Handshake failed / timeout"; acceptLoop
 	acceptLoop

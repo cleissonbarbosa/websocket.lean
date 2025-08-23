@@ -5,6 +5,7 @@ import WebSocket.Tests.Frames
 import WebSocket.Tests.Fragmentation
 import WebSocket.Tests.KeepAlive
 import WebSocket.Tests.UTF8
+import WebSocket.Tests.InvalidOpcode
 
 def main : IO Unit := do
   WebSocket.Tests.Basic.run
@@ -14,4 +15,5 @@ def main : IO Unit := do
   WebSocket.Tests.Fragmentation.run
   WebSocket.Tests.KeepAlive.run
   WebSocket.Tests.UTF8.run
+  WebSocket.Tests.InvalidOpcode.run
   IO.println "All tests done"

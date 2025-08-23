@@ -27,4 +27,18 @@ def testEncodeDecode : IO Unit := do
 def run : IO Unit := do
   testMasking; testEncodeDecode
 
+  -- Test violation -> close code mapping
+  let mappingExpect : List (ProtocolViolation × CloseCode) := [
+    (ProtocolViolation.textInvalidUTF8, CloseCode.invalidPayload),
+    (ProtocolViolation.oversizedMessage, CloseCode.messageTooBig),
+    (ProtocolViolation.controlTooLong, CloseCode.protocolError),
+    (ProtocolViolation.reservedBitsSet, CloseCode.protocolError)
+  ]
+  for (v, cc) in mappingExpect do
+    if violationCloseCode v ≠ cc then
+      panic! s!"Mapping mismatch for {v}: expected code {(CloseCode.toNat cc)}, got {(CloseCode.toNat (violationCloseCode v))}"
+  IO.println "Violation→CloseCode mapping test passed"
+  -- (Placeholder) Networking smoke: ensure TcpTransport .toTransport compiles & step function linkable.
+  -- Full integration tests would require spawning a socket; omitted here for determinism.
+
 end WebSocket.Tests.Basic

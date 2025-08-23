@@ -12,6 +12,7 @@ structure ServerConfig where
   maxMissedPongs : Nat := 3
   maxMessageSize : Nat := 1024 * 1024  -- 1MB default
   subprotocols : List String := []
+  negotiateExtensions : Bool := false
   -- no automatic instances needed
 
 /-- Server event types -/
@@ -58,24 +59,26 @@ def acceptConnection (server : ServerState) : IO (ServerState × Option ServerEv
   | none => return (server, some (.error 0 "Server not listening"))
   | some lh =>
     try
-      match ← acceptAndUpgrade lh with
-      | some tcpConn =>
-          -- Apply maxMessageSize from config to assembler
+      let upgradeCfg : UpgradeConfig := {
+        subprotocols := { supported := server.config.subprotocols, rejectOnNoMatch := false },
+        extensions := { supportedExtensions := [] } -- placeholder
+      }
+      let res ← WebSocket.Net.acceptAndUpgradeWithConfig lh upgradeCfg
+      match res with
+      | some (tcpConn, subp?, _exts) =>
           let tcpConn' : TcpConn := { tcpConn with assembler := { maxMessageSize? := some server.config.maxMessageSize } }
           let connId := server.nextConnId
           let connState : ConnectionState := {
             id := connId,
             conn := tcpConn',
-            addr := "127.0.0.1"  -- TODO: Get real peer address
+            addr := "127.0.0.1",
+            subprotocol := subp?
           }
-          let newServer := {
-            server with
-            connections := connState :: server.connections,
-            nextConnId := connId + 1
-          }
+          let newServer := { server with connections := connState :: server.connections, nextConnId := connId + 1 }
           return (newServer, some (.connected connId "127.0.0.1"))
       | none =>
-          return (server, some (.error 0 "Handshake failed"))
+          -- No pending connection or handshake failure; silent so caller can retry.
+          return (server, none)
     catch e =>
       return (server, some (.error 0 s!"Accept error: {e}"))
 
@@ -90,9 +93,8 @@ def processConnection (server : ServerState) (connId : Nat) : IO (ServerState ×
       let baseConn : Conn := (connState.conn : Conn)
       let bytes ← baseConn.transport.recv
       if bytes.size = 0 then
-        let newConns := server.connections.filter (·.id ≠ connId)
-        let newServer := { server with connections := newConns }
-        return (newServer, [.disconnected connId "Connection closed"])
+        -- Non-blocking read yielded no data; keep connection open, no events.
+        return (server, [])
       else
         let (newConn, events) ← WebSocket.handleIncoming baseConn bytes
         let updatedConnState := { connState with conn := { transport := connState.conn.transport, assembler := newConn.assembler, pingState := newConn.pingState } }

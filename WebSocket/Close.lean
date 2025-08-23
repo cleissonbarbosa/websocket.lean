@@ -22,6 +22,8 @@ namespace CloseCode
     | 1007 => some .invalidPayload | 1008 => some .policyViolation | 1009 => some .messageTooBig
     | 1010 => some .mandatoryExt | 1011 => some .internalError | 1015 => some .tlsHandshake
     | _ => none
+  instance : ToString CloseCode where
+    toString c := toString (toNat c)
 end CloseCode
 
 /-- Information extracted from a close frame -/

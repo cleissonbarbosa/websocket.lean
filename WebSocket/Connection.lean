@@ -31,22 +31,29 @@ def makePongFrame (payload : ByteArray) : Frame :=
 def autoPong (frames : List (OpCode × ByteArray)) : List Frame :=
   frames.foldl (fun acc (opc,pl) => if opc = .ping then acc ++ [makePongFrame pl] else acc) []
 
-/-- Handle incoming data (single-frame naive) -/
+/-- Handle incoming data (single-frame naive) using enhanced decoder for explicit violations. -/
 def handleIncoming (c : Conn) (bytes : ByteArray) : IO (Conn × List (OpCode × ByteArray)) := do
-  match decodeFrame bytes with
-  | none => pure (c, [])
-  | some res =>
-    match processFrame c.assembler res.frame with
-    | .violation _ => pure (c, [])
-    | .continue st' => pure ({ c with assembler := st' }, [])
-    | .message opc data st' =>
-        let frames := [(opc, data)]
-        if opc = .ping then
-          let pong := makePongFrame data
-          c.transport.send (encodeFrame pong)
-          pure ({ c with assembler := st' }, frames ++ [(.pong, data)])
-        else
-          pure ({ c with assembler := st' }, frames)
+  match decodeFrameEnhanced bytes with
+  | .incomplete => pure (c, [])
+  | .violation v =>
+      let close := closeFrameForViolation v
+      c.transport.send (encodeFrame close)
+      pure (c, [])
+  | .success res =>
+      match processFrame c.assembler res.frame with
+      | .violation v =>
+          let close := closeFrameForViolation v
+          c.transport.send (encodeFrame close)
+          pure (c, [])
+      | .continue st' => pure ({ c with assembler := st' }, [])
+      | .message opc data st' =>
+          let frames := [(opc, data)]
+          if opc = .ping then
+            let pong := makePongFrame data
+            c.transport.send (encodeFrame pong)
+            pure ({ c with assembler := st' }, frames ++ [(.pong, data)])
+          else
+            pure ({ c with assembler := st' }, frames)
 
 /-- Incremental connection loop state (buffering undecoded bytes). -/
 structure LoopState where
@@ -59,13 +66,16 @@ def drainBuffer (ls : LoopState) : (LoopState × List (OpCode × ByteArray)) :=
     match fuel with
     | 0 => (buf, c, acc.reverse)
     | Nat.succ fuel' =>
-        match decodeFrame buf with
-        | none => (buf, c, acc.reverse)
-        | some r =>
-            match processFrame c.assembler r.frame with
-            | .violation _ => (r.rest, c, acc.reverse)
-            | .continue st' => loop fuel' r.rest acc ({ c with assembler := st' })
-            | .message opc data st' => loop fuel' r.rest ((opc,data)::acc) ({ c with assembler := st' })
+    match decodeFrameEnhanced buf with
+    | .incomplete => (buf, c, acc.reverse)
+    | .violation v =>
+      -- On violation, emit no further events; higher layer will likely close connection separately.
+      (ByteArray.empty, c, acc.reverse)
+    | .success r =>
+      match processFrame c.assembler r.frame with
+      | .violation _ => (r.rest, c, acc.reverse)
+      | .continue st' => loop fuel' r.rest acc ({ c with assembler := st' })
+      | .message opc data st' => loop fuel' r.rest ((opc,data)::acc) ({ c with assembler := st' })
   let fuel := ls.buffer.size.succ
   let (rest, c', events) := loop fuel ls.buffer [] ls.conn
   ({ ls with conn := c', buffer := rest }, events)

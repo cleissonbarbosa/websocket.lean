@@ -99,16 +99,8 @@ def isValidCloseCode (code : Nat) : Bool :=
   (code >= 3000 ∧ code <= 3999) ∨
   (code >= 4000 ∧ code <= 4999)
 
-/-- Map close codes to appropriate protocol violations -/
-def closeCodeForViolation : ProtocolViolation → CloseCode
-  | .controlFragmented => .protocolError
-  | .controlTooLong => .protocolError
-  | .unexpectedContinuation => .protocolError
-  | .reservedBitsSet => .protocolError
-  | .invalidOpcode => .protocolError
-  | .textInvalidUTF8 => .invalidPayload
-  | .invalidClosePayload => .protocolError
-  | .oversizedMessage => .messageTooBig
-  | .fragmentSequenceError => .protocolError
+/-/ Re-export mapping defined in Assembler (single source of truth). -/
+@[inline] def closeCodeForViolation : ProtocolViolation → CloseCode :=
+  violationCloseCode
 
 end WebSocket.Protocol

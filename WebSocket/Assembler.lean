@@ -45,10 +45,25 @@ def buildCloseFrameSafe (code : CloseCode) (reason : String := "") : Option Fram
     else none
   else none
 
-/-- All protocol violations map to protocolError (placeholder) -/
+/-- Map protocol violations to appropriate RFC close codes.
+RFC 6455 guidance (informal mapping used here):
+* protocol errors (malformed framing, sequencing, reserved bits, invalid opcodes, bad close payload) -> 1002 protocolError
+* invalid UTF-8 in text -> 1007 invalidPayload
+* message too large / configured size limit -> 1009 messageTooBig
+We treat fragmentation sequence structural mistakes as protocol errors.
+-/
 def violationCloseCode : ProtocolViolation → CloseCode
-  | _ => .protocolError
+  | .textInvalidUTF8      => .invalidPayload   -- 1007
+  | .oversizedMessage     => .messageTooBig    -- 1009
+  | .controlFragmented
+  | .controlTooLong
+  | .unexpectedContinuation
+  | .reservedBitsSet
+  | .invalidOpcode
+  | .invalidClosePayload
+  | .fragmentSequenceError => .protocolError   -- 1002
 
+/-- Construct a close frame for a given violation (empty reason for now). -/
 def closeFrameForViolation (v : ProtocolViolation) : Frame :=
   buildCloseFrame (violationCloseCode v) ""
 

@@ -9,6 +9,14 @@
 #include <stdlib.h>
 #include <lean/lean.h>
 
+// Helper to set non-blocking mode
+static int set_nonblocking(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0) return -1;
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
+  return 0;
+}
+
 static lean_object *mk_io_error_from_errno(int err)
 {
   lean_object *msg = lean_mk_string(errno == 0 ? "socket error" : strerror(err));
@@ -39,6 +47,8 @@ lean_obj_res ws_listen(int port)
     close(fd);
     return mk_io_error_from_errno(e);
   }
+  // Set listening socket non-blocking (best effort)
+  set_nonblocking(fd);
   return lean_io_result_mk_ok(lean_box(fd));
 }
 
@@ -47,6 +57,7 @@ lean_obj_res ws_accept(int listen_fd)
   int cfd = accept(listen_fd, NULL, NULL);
   if (cfd < 0)
     return mk_io_error_from_errno(errno);
+  set_nonblocking(cfd);
   return lean_io_result_mk_ok(lean_box(cfd));
 }
 
@@ -67,6 +78,12 @@ lean_obj_res ws_recv_bytes(int fd, size_t max)
   ssize_t r = recv(fd, lean_sarray_cptr(ba), max, 0);
   if (r < 0)
   {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      // No data available now -> return empty (non-blocking semantics)
+      lean_dec_ref(ba);
+      lean_object *empty = lean_alloc_sarray(sizeof(uint8_t), 0, 0);
+      return lean_io_result_mk_ok(empty);
+    }
     lean_dec_ref(ba);
     return mk_io_error_from_errno(errno);
   }
@@ -84,6 +101,12 @@ lean_obj_res ws_recv_bytes(int fd, size_t max)
     return lean_io_result_mk_ok(ba2);
   }
   return lean_io_result_mk_ok(ba);
+}
+
+// Exposed function to force non-blocking (optional from Lean)
+lean_obj_res ws_set_nonblocking(int fd) {
+  if (set_nonblocking(fd) < 0) return mk_io_error_from_errno(errno);
+  return lean_io_result_mk_ok(lean_box(0));
 }
 
 lean_obj_res ws_send_bytes(int fd, lean_object *ba)

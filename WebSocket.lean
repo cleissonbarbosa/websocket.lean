@@ -3,6 +3,7 @@ import WebSocket.Core.Frames
 import WebSocket.Crypto.Base64
 import WebSocket.Crypto.SHA1
 import WebSocket.HTTP
+import WebSocket.UTF8
 
 namespace WebSocket
 open WebSocket
@@ -48,9 +49,18 @@ def upgradeE (req : HandshakeRequest) : Except HandshakeError HandshakeResponse 
   if ¬ containsIgnoreCase c "upgrade" then throw .connectionNotUpgrade
   let some k := header? req "Sec-WebSocket-Key" | throw .missingKey
   let accept := acceptKey k
-  return { status := 101, reason := "Switching Protocols", headers := [
+  -- Subprotocol negotiation: pick first token (if any) from Sec-WebSocket-Protocol
+  let subProto? : Option String :=
+    match header? req "Sec-WebSocket-Protocol" with
+    | none => none
+    | some raw =>
+        let tokens := raw.splitOn "," |>.map (fun s => s.trim) |>.filter (fun s => s.length > 0)
+        tokens.head?
+  let baseHeaders := [
     ("Upgrade","websocket"), ("Connection","Upgrade"), ("Sec-WebSocket-Accept", accept)
-  ] }
+  ]
+  let headers := match subProto? with | some sp => baseHeaders ++ [("Sec-WebSocket-Protocol", sp)] | none => baseHeaders
+  return { status := 101, reason := "Switching Protocols", headers }
 
 def upgrade (req : HandshakeRequest) : Option HandshakeResponse :=
   match upgradeE req with | .ok r => some r | .error _ => none
@@ -164,29 +174,28 @@ def processFrame (st : AssemblerState) (f : Frame) : AssemblerOutput :=
           if f.header.fin then
             let finalData := newAcc
             if st.opcodeFirst? = some .text then
-              if let .some _ := (String.fromUTF8? finalData) then
+              if validateUTF8 finalData then
                 .message (st.opcodeFirst?.getD .text) finalData { buffering := false, opcodeFirst? := none, acc := ByteArray.empty }
               else
-                .violation .controlTooLong -- placeholder until constructor resolution fixed
+                .violation .textInvalidUTF8
             else
               .message (st.opcodeFirst?.getD .text) finalData { buffering := false, opcodeFirst? := none, acc := ByteArray.empty }
           else
             .continue { st with acc := newAcc }
         else
-          .violation .controlFragmented -- placeholder for unexpectedContinuation
+          .violation .unexpectedContinuation
     | .text | .binary =>
         if f.header.fin then
           if f.header.opcode = .text then
-            if let .some _ := (String.fromUTF8? f.payload) then
+            if validateUTF8 f.payload then
               .message f.header.opcode f.payload st
             else
-              .violation .controlTooLong -- placeholder
+              .violation .textInvalidUTF8
           else
             .message f.header.opcode f.payload st
         else
           .continue { buffering := true, opcodeFirst? := some f.header.opcode, acc := f.payload }
     | .close | .ping | .pong =>
-        -- Control frames should have been handled earlier; treat as immediate single message (not aggregated)
         .message f.header.opcode f.payload st
 
 /-- Simple ping scheduler state. -/
@@ -215,13 +224,27 @@ def makeTextFrame (s : String) : Frame :=
   let payload := ByteArray.mk s.toUTF8.data
   { header := { opcode := .text, masked := false, payloadLen := payload.size }, payload }
 
+def makePongFrame (payload : ByteArray) : Frame :=
+  { header := { opcode := .pong, masked := false, payloadLen := payload.size }, payload }
+
+def autoPong (frames : List (OpCode × ByteArray)) : List Frame :=
+  frames.foldl (fun acc (opc,pl) => if opc = .ping then acc ++ [makePongFrame pl] else acc) []
+
 def handleIncoming (c : Conn) (bytes : ByteArray) : IO (Conn × List (OpCode × ByteArray)) := do
   -- Naive: decode single frame only
   match decodeFrame bytes with
   | none => pure (c, [])
   | some res =>
-      match processFrame c.assembler res.frame with
-      | .violation _ => pure (c, [])
-      | .continue st' => pure ({ c with assembler := st' }, [])
-      | .message opc data st' => pure ({ c with assembler := st' }, [(opc, data)])
+    match processFrame c.assembler res.frame with
+    | .violation _ => pure (c, [])
+    | .continue st' => pure ({ c with assembler := st' }, [])
+    | .message opc data st' =>
+        let frames := [(opc, data)]
+        -- Automatic pong reply if ping
+        if opc = .ping then
+          let pong := makePongFrame data
+          c.transport.send (encodeFrame pong)
+          pure ({ c with assembler := st' }, frames ++ [(.pong, data)])
+        else
+        pure ({ c with assembler := st' }, frames)
 end WebSocket

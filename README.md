@@ -4,7 +4,8 @@ Experimental native Lean 4 implementation (self‑contained, pure Lean) of the W
 
 ## Status
 
-> WARNING: This is **not** production-ready. There is still **no real TCP / TLS layer**; the project currently focuses on correct framing, handshake logic, and internal state handling. Cryptographic pieces needed for the opening handshake (SHA‑1 + Base64) are implemented in pure Lean for experimentation (not performance‑tuned).
+> [!WARNING]
+> This is **not** production-ready. There is still **no real TCP / TLS layer**; the project currently focuses on correct framing, handshake logic, and internal state handling. Cryptographic pieces needed for the opening handshake (SHA‑1 + Base64) are implemented in pure Lean for experimentation (not performance‑tuned).
 
 Implemented pieces:
 * Frame data structures + encode/decode (base, 16‑bit, 64‑bit extended lengths).
@@ -16,18 +17,22 @@ Implemented pieces:
 * Protocol violation classification (initial subset) and mapping to close frames.
 * Ping scheduler state (interval tracking) + basic tests.
 * Deterministic pseudo‑random masking key generator (xorshift32) for fuzz / property tests.
-* Comprehensive test suite: masking, encode/decode (masked & extended lengths), handshake RFC example, SHA‑1 vector, control frame validation, raw HTTP upgrade, upgrade error paths, close frame parsing, fragmentation sequence, ping scheduler, violation→close mapping.
+* UTF‑8 validation for text frames (rejects overlongs, surrogates, invalid sequences) both single and fragmented message reassembly.
+* Subprotocol negotiation scaffolding: selects first requested token from `Sec-WebSocket-Protocol` if present.
+* Automatic pong generation upon receiving ping frames (within `handleIncoming`).
+* Additional protocol violations surfaced: `unexpectedContinuation`, `textInvalidUTF8`.
+* Comprehensive test suite: masking, encode/decode (masked & extended lengths), handshake RFC example, SHA‑1 vector, control frame validation, raw HTTP upgrade, upgrade error paths, close frame parsing, fragmentation sequence, ping scheduler, violation→close mapping, UTF‑8 invalid cases, subprotocol negotiation, unexpected continuation, auto‑pong.
 
 Remaining / Next TODO:
 * Networking:
 	- Real TCP socket layer (likely via FFI wrapper) + integration loop (accept, read partial frames, assemble, dispatch).
 	- TLS / WSS support (likely via external library binding; out of pure Lean scope initially).
 * Protocol completeness:
-	- UTF‑8 validation for text frames & close reasons.
-	- Subprotocol (`Sec-WebSocket-Protocol`) negotiation scaffolding.
+	- UTF‑8 validation for close reasons (current implementation validates text messages; close payload reason still permissive) + possibly stricter error mapping.
+	- Subprotocol selection strategy (priority / server preference) beyond "first token"; ability to reject when unsupported.
 	- Extension negotiation hooks (e.g. permessage-deflate placeholder).
-	- Automatic pong responses & configurable keepalive (currently only ping scheduling state).
-	- More protocol violation variants (unexpected continuation, reserved bits misuse, invalid opcodes, oversized control frames already covered).
+	- Configurable keepalive strategy (timers, missed pong detection) beyond automatic pong reply.
+	- More protocol violation variants (reserved bits misuse already flagged; explicit invalid opcode signaling, continuation sequencing edge cases, oversized control frames already covered).
 	- Close handshake flow helper (send/await close then shutdown).
 * Formal verification / proofs:
 	- Replace masking involution axiom with a proof.
@@ -50,6 +55,7 @@ Remaining / Next TODO:
 	- Add protocol state machine outline.
 	- Document fragmentation invariants & assembler guarantees.
 	- Developer guide for extending violations & close mappings.
+	- Clarify current subprotocol negotiation strategy and how to extend it.
 
 ## Roadmap ( condensed )
 1. Socket + incremental I/O layer; streaming decoder.

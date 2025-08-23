@@ -113,6 +113,12 @@ def testControlValidation : IO Unit := do
   match WebSocket.validateFrame bigPing with
   | some .controlTooLong => IO.println "Control validation test passed"
   | _ => throw <| IO.userError "Expected controlTooLong"
+  -- RSV bits violation
+  let rsvHeader := { ping.header with rsv1 := true }
+  let rsvFrame : Frame := { ping with header := rsvHeader }
+  match WebSocket.validateFrame rsvFrame with
+  | some .reservedBitsSet => IO.println "Reserved bits validation passed"
+  | other => throw <| IO.userError s!"Expected reservedBitsSet got {other}"
 
 def testUpgradeRaw : IO Unit := do
   let raw := "GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
@@ -124,6 +130,40 @@ def testUpgradeRaw : IO Unit := do
       | some v => if v = expected then IO.println "upgradeRaw test passed" else throw <| IO.userError "upgradeRaw accept mismatch"
       | none => throw <| IO.userError "upgradeRaw missing accept"
   | none => throw <| IO.userError "upgradeRaw failed"
+
+def testSubprotocolNegotiation : IO Unit := do
+  let req : HandshakeRequest := {
+    method := "GET", resource := "/", headers := [
+      ("Host","ex"),("Upgrade","websocket"),("Connection","Upgrade"),("Sec-WebSocket-Key","dGhlIHNhbXBsZSBub25jZQ=="),
+      ("Sec-WebSocket-Protocol","chat, superchat")
+    ] }
+  match WebSocket.upgrade req with
+  | some resp =>
+      let chosen? := resp.headers.findSome? (fun (k,v) => if k = "Sec-WebSocket-Protocol" then some v else none)
+      match chosen? with
+      | some proto => if proto = "chat" then IO.println "Subprotocol negotiation passed" else throw <| IO.userError s!"Unexpected subprotocol {proto}"
+      | none => throw <| IO.userError "Missing Sec-WebSocket-Protocol in response"
+  | none => throw <| IO.userError "Upgrade failed in subprotocol test"
+
+def testUnexpectedContinuation : IO Unit := do
+  let contPayload := ByteArray.mk "more".toUTF8.data
+  let contFrame : Frame := { header := { opcode := .continuation, masked := false, payloadLen := contPayload.size, fin := true }, payload := contPayload }
+  match WebSocket.processFrame {} contFrame with
+  | .violation .unexpectedContinuation => IO.println "Unexpected continuation test passed"
+  | _ => throw <| IO.userError "Expected unexpectedContinuation"
+
+def testAutoPong : IO Unit := do
+  -- Build a ping frame and ensure handleIncoming produces pong side-effect (we can't observe send; we just check returned list contains pong marker)
+  let payload := ByteArray.mk "hi".toUTF8.data
+  let pingFrame : Frame := { header := { opcode := .ping, masked := false, payloadLen := payload.size }, payload := payload }
+  let bytes := encodeFrame pingFrame
+  let dummyTransport : Transport := { recv := pure ByteArray.empty, send := fun _ => pure () }
+  let conn : Conn := { transport := dummyTransport, assembler := {}, pingState := {} }
+  let (_, events) ← WebSocket.handleIncoming conn bytes
+  if events.any (fun (opc,_) => opc = .pong) then
+    IO.println "AutoPong test (logical) passed"
+  else
+    throw <| IO.userError "Expected pong event in returned list"
 
 def testUpgradeErrors : IO Unit := do
   let base : HandshakeRequest := { method := "GET", resource := "/", headers := [] }
@@ -174,6 +214,12 @@ def testViolationClose : IO Unit := do
 def main : IO Unit := do
   testMasking; testEncodeDecode; testHandshake; testSHA1Vector
   testMaskedRoundtrip; testExtendedLengths; testControlValidation
-  testUpgradeRaw; testUpgradeErrors; testCloseFrames; testFragmentation; testPingScheduler
+  testUpgradeRaw; testSubprotocolNegotiation; testUpgradeErrors; testCloseFrames; testFragmentation; testPingScheduler; testUnexpectedContinuation; testAutoPong
   testViolationClose
+  -- UTF-8 invalid sequence test
+  let badBytes := ByteArray.mk #[0xC0,0xAF] -- overlong '/' U+002F
+  let fBad : Frame := { header := { opcode := .text, masked := false, payloadLen := badBytes.size }, payload := badBytes }
+  match WebSocket.processFrame {} fBad with
+  | .violation .textInvalidUTF8 => IO.println "UTF-8 invalid test passed"
+  | _ => throw <| IO.userError "Expected textInvalidUTF8"
   IO.println "All tests done"

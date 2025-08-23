@@ -23,16 +23,16 @@ script build_c_modules do
   pure 0
 
 lean_exe echoServer where
-  root := `WebSocket.Examples.EchoServer
+  root := `Examples.EchoServer
   moreLinkArgs := #["c/ws_socket.o"]
 lean_exe advancedEchoServer where
-  root := `WebSocket.Examples.AdvancedEchoServer
+  root := `Examples.AdvancedEchoServer
   moreLinkArgs := #["c/ws_socket.o"]
-lean_exe EnhancedEchoServer where
-  root := `WebSocket.Examples.EnhancedEchoServer
+lean_exe enhancedEchoServer where
+  root := `Examples.EnhancedEchoServer
   moreLinkArgs := #["c/ws_socket.o"]
 lean_exe echoClient where
-  root := `WebSocket.Examples.EchoClient
+  root := `Examples.EchoClient
   moreLinkArgs := #["c/ws_socket.o"]
 lean_exe tests where
   root := `WebSocket.Tests.Main

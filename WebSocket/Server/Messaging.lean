@@ -1,4 +1,5 @@
 import WebSocket
+import WebSocket.Log
 import WebSocket.Net
 import WebSocket.Server.Types
 open WebSocket WebSocket.Net
@@ -10,7 +11,9 @@ open WebSocket.Server.Types
 /-- Send a message to a specific connection -/
 def sendMessage (server : ServerState) (connId : Nat) (opcode : OpCode) (payload : ByteArray) : IO ServerState := do
   match server.connections.find? (·.id = connId) with
-  | none => IO.println s!"Connection {connId} not found"; return server
+  | none =>
+    WebSocket.log .warn s!"Connection {connId} not found"
+    return server
   | some connState =>
     try
       let frame : Frame := { header := { opcode := opcode, masked := false, payloadLen := payload.size }, payload := payload }
@@ -18,7 +21,7 @@ def sendMessage (server : ServerState) (connId : Nat) (opcode : OpCode) (payload
       c.transport.send (encodeFrame frame)
       return server
     catch e =>
-      IO.println s!"Failed to send to connection {connId}: {e}"
+      WebSocket.log .error s!"Failed to send to connection {connId}: {e}"
       let newConns := server.connections.filter (·.id ≠ connId)
       return { server with connections := newConns }
 
@@ -49,6 +52,6 @@ def stop (server : ServerState) : IO Unit := do
       let c : Conn := (connState.conn : Conn)
       c.transport.close
     catch _ => pure ()
-  IO.println "Server stopped"
+  WebSocket.log .info "Server stopped"
 
 end WebSocket.Server.Messaging

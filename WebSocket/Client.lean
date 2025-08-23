@@ -1,5 +1,6 @@
 import WebSocket
 import WebSocket.Net
+import WebSocket.Close
 import WebSocket.Random
 open WebSocket WebSocket.Net
 
@@ -19,7 +20,7 @@ structure ClientConfig where
 /-- Client event types -/
 inductive ClientEvent
   | connected
-  | disconnected (reason : String)
+  | disconnected (code? : Option CloseCode) (reason : String)
   | message (opcode : OpCode) (payload : ByteArray)
   | error (error : String)
   | pong (payload : ByteArray)
@@ -30,7 +31,7 @@ structure ClientState where
   config : ClientConfig
   conn : Option TcpConn := none
   connected : Bool := false
-  deriving Repr
+
 
 /-- Event handler type -/
 abbrev EventHandler := ClientEvent → IO Unit
@@ -63,26 +64,23 @@ def processMessages (client : ClientState) : IO (ClientState × List ClientEvent
     if ¬ client.connected then
       return (client, [])
     try
-      let bytes ← tcpConn.transport.recv
+      let t := tcpConn.transport.toTransport
+      let bytes ← t.recv
       if bytes.size = 0 then
-        -- Connection closed
-        let newClient := {
-          client with
-          conn := none,
-          connected := false
-        }
-        return (newClient, [.disconnected "Connection closed"])
+        let newClient := { client with conn := none, connected := false }
+        return (newClient, [.disconnected none "Connection closed"])
       else
-        let (newConn, events) ← WebSocket.handleIncoming tcpConn bytes
-        let newTcpConn : TcpConn := {
-          transport := newConn.transport,
-          assembler := newConn.assembler,
-          pingState := newConn.pingState
-        }
+        let abstractConn : Conn := (tcpConn : Conn)
+        let (newConn, events) ← WebSocket.handleIncoming abstractConn bytes
+        let newTcpConn : TcpConn := { tcpConn with assembler := newConn.assembler, pingState := newConn.pingState }
         let newClient := { client with conn := some newTcpConn }
-        let clientEvents := events.map (fun (opc, payload) =>
-          if opc = .pong then ClientEvent.pong payload
-          else ClientEvent.message opc payload)
+        let clientEvents := events.foldl (fun acc (opc,payload) =>
+          if opc = .pong then ClientEvent.pong payload :: acc
+          else if opc = .close then
+            match parseClosePayload payload with
+            | some info => ClientEvent.disconnected info.code info.reason :: acc
+            | none => ClientEvent.disconnected none "Invalid close payload" :: acc
+          else ClientEvent.message opc payload :: acc) [] |>.reverse
         return (newClient, clientEvents)
     catch e =>
       let newClient := {
@@ -106,8 +104,8 @@ def sendMessage (client : ClientState) (opcode : OpCode) (payload : ByteArray) :
         maskingKey? := some mk,
         payload := payload
       }
-  let t := tcpConn.transport.toTransport
-  t.send (encodeFrame frame)
+      let t := tcpConn.transport.toTransport
+      t.send (encodeFrame frame)
       return client
     catch e =>
       IO.println s!"Failed to send message: {e}"
@@ -133,9 +131,9 @@ def close (client : ClientState) (code : CloseCode := .normalClosure) (reason : 
   | some tcpConn =>
     try
       let closeFrame := buildCloseFrame code reason
-  let t := tcpConn.transport.toTransport
-  t.send (encodeFrame closeFrame)
-  t.close
+      let t := tcpConn.transport.toTransport
+      t.send (encodeFrame closeFrame)
+      t.close
       return { client with conn := none, connected := false }
     catch _ =>
       return { client with conn := none, connected := false }
@@ -150,6 +148,6 @@ partial def runClient (client : ClientState) (handler : EventHandler) : IO Unit 
   if client'.connected then
     runClient client' handler
   else
-    handler (.disconnected "Client stopped")
+    handler (.disconnected none "Client stopped")
 
 end WebSocket.Client

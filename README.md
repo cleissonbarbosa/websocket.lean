@@ -63,6 +63,14 @@ Implemented pieces (now organized across modules):
 * Additional protocol violations surfaced: `unexpectedContinuation`, `textInvalidUTF8`, `fragmentSequenceError`, `oversizedMessage`.
 * Comprehensive test suite: masking, encode/decode (masked & extended lengths), handshake RFC example, SHA‑1 vector, control frame validation, raw HTTP upgrade, upgrade error paths, close frame parsing, fragmentation sequence, ping scheduler, violation→close mapping, UTF‑8 invalid cases, subprotocol negotiation, unexpected continuation, auto‑pong, invalid opcode, size limit & fragmentation errors, keepalive logic.
 
+## � New Ergonomics
+
+The library now supplies:
+* A pluggable logging abstraction (`WebSocket.Log`) – swap the global logger ref to integrate with your own logging infra.
+* Background server startup helper (`WebSocket.Server.Runtime.startBackground`) that spawns the async loop as a `Task`, returning a handle with `stop`.
+* Client disconnect events now carry optional close code + reason (`ClientEvent.disconnected (code? reason)`).
+* Configurable server logging flags (`ServerConfig.logConnections`).
+
 Remaining / Next TODO (updated after modular split):
 * Networking:
 	- (IN PROGRESS) Native TCP socket FFI shim (`c/ws_socket.c`) + `WebSocket.Net` accept & handshake helpers. (basic listen/accept + upgrade implemented)
@@ -218,4 +226,4 @@ open WebSocket
 PRs welcome: socket backends, UTF‑8 & validation layers, proofs, fuzzing harness, high-level API, better keepalive runtime, extension negotiation strategies, and documentation improvements.
 
 ## License
-MIT
+[MIT](LICENSE)

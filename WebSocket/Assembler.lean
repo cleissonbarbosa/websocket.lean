@@ -34,16 +34,6 @@ def buildCloseFrame (code : CloseCode) (reason : String := "") : Frame :=
   let payload := if codeBytes.size + reasonBytes.size <= 125 then codeBytes ++ reasonBytes else codeBytes
   { header := { opcode := .close, masked := false, payloadLen := payload.size }, payload }
 
-/-- Build close frame with enhanced validation for reason -/
-def buildCloseFrameSafe (code : CloseCode) (reason : String := "") : Option Frame :=
-  if reason.all (fun c => c.toNat >= 32 || c == '\t' || c == '\n' || c == '\r') then
-    let codeBytes : ByteArray := ByteArray.mk #[UInt8.ofNat (code.toNat >>> 8), UInt8.ofNat (code.toNat &&& 0xFF)]
-    let reasonBytes := ByteArray.mk reason.toUTF8.data
-    if codeBytes.size + reasonBytes.size <= 125 then
-      let payload := codeBytes ++ reasonBytes
-      some { header := { opcode := .close, masked := false, payloadLen := payload.size }, payload }
-    else none
-  else none
 
 /-- Map protocol violations to appropriate RFC close codes.
 RFC 6455 guidance (informal mapping used here):

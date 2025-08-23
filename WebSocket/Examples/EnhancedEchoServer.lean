@@ -1,5 +1,6 @@
 import WebSocket
 import WebSocket.Net
+import WebSocket.Log
 import WebSocket.Server
 import WebSocket.Server.Events
 import WebSocket.Server.KeepAlive
@@ -52,23 +53,23 @@ def main : IO Unit := do
   -- Handlers for subscription (logging only)
   let connectionHandler : EventHandler := fun event => do
     match event with
-    | .connected id addr => IO.println s!"🔗 Client {id} connected from {addr}"
-    | .disconnected id reason => IO.println s!"❌ Client {id} disconnected: {reason}"
+    | .connected id addr => WebSocket.log .info s!"🔗 Client {id} connected from {addr}"
+    | .disconnected id reason => WebSocket.log .info s!"❌ Client {id} disconnected: {reason}"
     | _ => pure ()
 
   let messageLogger : EventHandler := fun event => do
     match event with
     | .message id .text payload =>
-        IO.println s!"💬 Text from {id}: {String.fromUTF8! payload}"
+        WebSocket.log .info s!"💬 Text from {id}: {String.fromUTF8! payload}"
     | .message id .binary payload =>
-        IO.println s!"📦 Binary from {id}: {payload.size} bytes"
-    | .message id .ping _ => IO.println s!"🏓 Ping from {id}"
-    | .message id .pong _ => IO.println s!"🏓 Pong from {id}"
+        WebSocket.log .info s!"📦 Binary from {id}: {payload.size} bytes"
+    | .message id .ping _ => WebSocket.log .info s!"🏓 Ping from {id}"
+    | .message id .pong _ => WebSocket.log .info s!"🏓 Pong from {id}"
     | _ => pure ()
 
   let errorHandler : EventHandler := fun event => do
     match event with
-    | .error id msg => IO.println s!"⚠️  Error on connection {id}: {msg}"
+    | .error id msg => WebSocket.log .error s!"⚠️  Error on connection {id}: {msg}"
     | _ => pure ()
 
   let (em1, _) := subscribe eventManager .connected connectionHandler
@@ -95,20 +96,20 @@ def main : IO Unit := do
         srvRef.set s
     | _ => pure ()
 
-  IO.println s!"🚀 Enhanced Async WebSocket server starting on port {config.port}"
-  IO.println "Features enabled:"
-  IO.println "  ✓ Event subscription system"
-  IO.println "  ✓ Keep-alive pings every 15s"
-  IO.println "  ✓ Graceful close handling"
-  IO.println "  ✓ Async processing loop"
-  IO.println "  ✓ Auto-echo for text and binary messages"
-  IO.println ""
-  IO.println "Press Ctrl+C to stop gracefully... (Ctrl+C will terminate the process)"
+  WebSocket.log .info s!"🚀 Enhanced Async WebSocket server starting on port {config.port}"
+  WebSocket.log .info "Features enabled:"
+  WebSocket.log .info "  ✓ Event subscription system"
+  WebSocket.log .info "  ✓ Keep-alive pings every 15s"
+  WebSocket.log .info "  ✓ Graceful close handling"
+  WebSocket.log .info "  ✓ Async processing loop"
+  WebSocket.log .info "  ✓ Auto-echo for text and binary messages"
+  WebSocket.log .info ""
+  WebSocket.log .info "Press Ctrl+C to stop gracefully... (Ctrl+C will terminate the process)"
 
   -- Run the async loop updating the shared state ref.
   runAsyncServerUpdating srvRef enhancedHandler
 
-  IO.println "🛑 Server stopped"
+  WebSocket.log .info "🛑 Server stopped"
 
 end WebSocket.Examples
 

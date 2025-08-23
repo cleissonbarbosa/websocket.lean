@@ -1,4 +1,5 @@
 import WebSocket
+import WebSocket.Log
 open WebSocket
 
 /-- Placeholder client that would connect to a WebSocket endpoint.
@@ -15,7 +16,7 @@ def demoRoundtrip : IO Unit := do
   | some res =>
       let decoded := res.frame.payload
       let asString := (String.fromUTF8? decoded).getD "<invalid utf8>"
-      IO.println s!"Decoded frame: opcode={res.frame.header.opcode}, len={decoded.size}, text=\"{asString}\""
-  | none => IO.println "Decode failed"
+      WebSocket.log .info s!"Decoded frame: opcode={res.frame.header.opcode}, len={decoded.size}, text=\"{asString}\""
+  | none => WebSocket.log .error "Decode failed"
 
 def main : IO Unit := demoRoundtrip

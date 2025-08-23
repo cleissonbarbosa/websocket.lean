@@ -12,24 +12,6 @@ import WebSocket.Server.Events
  High-level (prototype) server API. This file now only re-exports the reorganized
  server submodules (Types, Lifecycle, Messaging, Loop) to keep `import WebSocket.Server`
  working while allowing finer-grained maintenance.
-
- The actual implementations were split into:
- * `Server/Types.lean`       : configuration, state, events, helpers
- * `Server/Accept.lean`      : accept + handshake logic
- * `Server/Process.lean`     : per-connection processing (read + frame handling)
- * `Server/Messaging.lean`   : send / broadcast helpers
- * `Server/Loop.lean`        : naive recursive loop (blocking prototype)
- * `Server/Close.lean`       : graceful close handshake orchestration
- * `Server/Async.lean`       : non-blocking server with task management
- * `Server/KeepAlive.lean`   : ping/pong integration with PingState
- * `Server/Events.lean`      : subscription-based event handling system
-
- Future additions (completed):
- ✓ Connection cleanup + close handshake orchestration
- ✓ Concurrent task spawning per connection (async loop)
- ✓ KeepAlive ping integration using `PingState`
- ✓ Event subscription/dispatch API
- ✓ Integration tests
 -/
 
 namespace WebSocket.Server

@@ -1,5 +1,6 @@
 import WebSocket
 import WebSocket.Server
+import WebSocket.Log
 open WebSocket WebSocket.Server
 
 /-- Minimal advanced echo prototype (single connection, sequential loop). -/
@@ -30,19 +31,19 @@ def main : IO Unit := do
   -- Simple printer (no echo logic) — echo performed in processing loop where we can update server state.
   let handleEvent : EventHandler := fun ev =>
     match ev with
-    | .connected id addr => IO.println s!"Client {id} connected from {addr}"
-    | .disconnected id reason => IO.println s!"Client {id} disconnected: {reason}"
+    | .connected id addr => WebSocket.log .info s!"Client {id} connected from {addr}"
+    | .disconnected id reason => WebSocket.log .info s!"Client {id} disconnected: {reason}"
     | .message id opc payload =>
         match opc with
-        | .text => IO.println s!"[print] text from {id}: {(String.fromUTF8! payload)}"
-        | .binary => IO.println s!"[print] binary from {id}: {payload.size} bytes"
-        | .ping => IO.println s!"[print] ping from {id}"
-        | .pong => IO.println s!"[print] pong from {id}"
-        | .close => IO.println s!"[print] close from {id}"
-        | .continuation => IO.println s!"[print] continuation (ignored) from {id}"
-    | .error id err => IO.println s!"Error from client {id}: {err}"
+        | .text => WebSocket.log .info s!"[print] text from {id}: {(String.fromUTF8! payload)}"
+        | .binary => WebSocket.log .info s!"[print] binary from {id}: {payload.size} bytes"
+        | .ping => WebSocket.log .info s!"[print] ping from {id}"
+        | .pong => WebSocket.log .info s!"[print] pong from {id}"
+        | .close => WebSocket.log .info s!"[print] close from {id}"
+        | .continuation => WebSocket.log .info s!"[print] continuation (ignored) from {id}"
+    | .error id err => WebSocket.log .error s!"Error from client {id}: {err}"
 
-  IO.println s!"Enhanced WebSocket server started on port {port} (maxConnections={maxConns}). Press Ctrl+C to stop."
+  WebSocket.log .info s!"Enhanced WebSocket server started on port {port} (maxConnections={maxConns}). Press Ctrl+C to stop."
 
   /- Simple loop:
      1. Repeatedly call acceptConnection until a client connects.
@@ -65,10 +66,10 @@ def main : IO Unit := do
   let (server', connId?) ← waitForClient server
   match connId? with
   | none =>
-      IO.println "No client connected (timeout). Stopping server."
+      WebSocket.log .error "No client connected (timeout). Stopping server."
       stop server'
   | some cid =>
-      IO.println s!"Client {cid} connected; entering echo loop"
+      WebSocket.log .info s!"Client {cid} connected; entering echo loop"
       let mut cur := server'
       for _ in [0:400] do
         let (cur', events) ← processConnection cur cid
@@ -84,6 +85,6 @@ def main : IO Unit := do
               cur ← sendBinary cur id payload
           | _ => handleEvent ev
         IO.sleep 50
-      IO.println "Loop complete; stopping server"
+      WebSocket.log .info "Loop complete; stopping server"
       stop cur
-  IO.println "Server stopped"
+  WebSocket.log .info "Server stopped"

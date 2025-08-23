@@ -1,4 +1,5 @@
 import WebSocket
+import WebSocket.Log
 import WebSocket.Net
 import WebSocket.Server.Types
 open WebSocket WebSocket.Net
@@ -10,7 +11,8 @@ open WebSocket.Server.Types
 /-- Start listening on the configured port -/
 def start (server : ServerState) : IO ServerState := do
   let lh ← openServer server.config.port
-  IO.println s!"WebSocket server listening on port {server.config.port}"
+  if server.config.logConnections then
+    WebSocket.log .info s!"Listening on port {server.config.port}"
   return { server with listenHandle := some lh }
 
 /-- Accept a single connection and perform handshake -/
@@ -35,6 +37,8 @@ def acceptConnection (server : ServerState) : IO (ServerState × Option ServerEv
             subprotocol := subp?
           }
           let newServer := { server with connections := connState :: server.connections, nextConnId := connId + 1 }
+          if server.config.logConnections then
+            WebSocket.log .info s!"Accepted connection #{connId}"
           return (newServer, some (.connected connId "127.0.0.1"))
       | none => return (server, none)
     catch e => return (server, some (.error 0 s!"Accept error: {e}"))

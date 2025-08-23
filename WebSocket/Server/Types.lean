@@ -1,4 +1,5 @@
 import WebSocket
+import WebSocket.Log
 import WebSocket.Net
 open WebSocket WebSocket.Net
 
@@ -13,6 +14,10 @@ structure ServerConfig where
   maxMessageSize : Nat := 1024 * 1024  -- 1MB default
   subprotocols : List String := []
   negotiateExtensions : Bool := false
+  /-- Minimum log level (inclusive) for built-in logging calls. -/
+  logLevelMin : LogLevel := .info
+  /-- Whether to emit connection lifecycle logs. -/
+  logConnections : Bool := true
 
 /-- Server event types -/
 inductive ServerEvent

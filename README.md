@@ -25,12 +25,16 @@ Module files (all under `WebSocket/` unless noted):
 | `Crypto/SHA1.lean` | SHA‑1 implementation used in handshake. |
 | `HTTP.lean` | Minimal HTTP request parser for upgrade. |
 | `Net.lean` (WIP) | FFI socket shim integration (listen/accept + `acceptAndUpgradeWithConfig`). |
-| `Server.lean` | Agregador que re-exporta submódulos de servidor. |
+| `Server.lean` | Agregador que re-exporta submódulos de servidor (agora com funcionalidades avançadas). |
 | `Server/Types.lean` | Configuração (`ServerConfig`), eventos (`ServerEvent`), estados (`ServerState`, `ConnectionState`). |
 | `Server/Accept.lean` | Abertura de porta (`start`) e handshake/aceitação (`acceptConnection`). |
 | `Server/Process.lean` | Processamento de frames recebidos por conexão (`processConnection`). |
 | `Server/Messaging.lean` | Envio e broadcast (`sendMessage`, `sendText`, `broadcast*`, `stop`). |
 | `Server/Loop.lean` | Loop recursivo protótipo (`runServer`). |
+| `Server/Close.lean` | ✨ **NOVO**: Handshake de fechamento gracioso (`initiateClose`, `handleIncomingClose`, timeout handling). |
+| `Server/Async.lean` | ✨ **NOVO**: Servidor não-bloqueante com gerenciamento de tarefas (`AsyncServerState`, `runAsyncServer`). |
+| `Server/KeepAlive.lean` | ✨ **NOVO**: Integração de ping/pong com `PingState` (`processKeepAlive`, timeout detection). |
+| `Server/Events.lean` | ✨ **NOVO**: Sistema de subscrição a eventos (`EventManager`, `subscribe`, `dispatch`, filtros). |
 | `Protocol.lean` | Additional negotiation strategies + re-export of violation→close mapping. |
 
 Why a flat namespace? Keeping every module inside `namespace WebSocket` avoids breaking existing imports and simplifies referencing (no `WebSocket.Handshake.HandshakeRequest`, just `WebSocket.HandshakeRequest`). If future API versioning or hierarchical visibility is desired, we can introduce nested namespaces with compatibility aliases.
@@ -45,12 +49,28 @@ def demoClose : Frame := buildCloseFrame CloseCode.normalClosure "bye"
 
 -- Perform a basic upgrade from raw HTTP
 def maybeResp := upgradeRaw "GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+
+-- ✨ NEW: Enhanced server with event subscriptions
+import WebSocket.Server
+import WebSocket.Server.Events
+
+let server ← mkAsyncServer { port := 9001 }
+let mut eventManager := mkEventManager
+let (em, _) := subscribeToTextMessages eventManager (fun event => IO.println s"Got: {event}")
+runAsyncServer server (dispatch em)
 ```
 
 ## Status
 
 > [!WARNING]
 > This is **not** production-ready. There is still **no real TCP / TLS layer**; the project currently focuses on correct framing, handshake logic, and internal state handling. Cryptographic pieces needed for the opening handshake (SHA‑1 + Base64) are implemented in pure Lean for experimentation (not performance‑tuned).
+
+✨ **NEW FEATURES (v0.2.0):**
+- **Event subscription system**: Subscribe to specific events with filters (`EventManager`, `subscribe`, `dispatch`)
+- **Graceful close handshake**: Proper WebSocket close protocol with timeout handling (`initiateClose`, `processCloseTimeouts`)
+- **Async server loop**: Non-blocking server with task management (`AsyncServerState`, `runAsyncServer`)
+- **Keep-alive integration**: Automated ping/pong with configurable intervals and timeout detection
+- **Comprehensive integration tests**: Full test suite for new functionality
 
 Implemented pieces (now organized across modules):
 * Frame data structures + encode/decode (base, 16‑bit, 64‑bit extended lengths).
@@ -120,13 +140,15 @@ lake exe tests
 Add new tests in `WebSocket/Tests/`—they can import only the modules they exercise (but `import WebSocket` still works as a shortcut).
 
 ## Roadmap (condensed / updated)
-1. Integrate incremental buffered loop into server (multi-connection, non-blocking); concurrency & graceful shutdown primitives.
-2. Close handshake orchestration (bidirectional: respond + drain + timeout) and structured disconnect events w/ code & reason.
-3. Keepalive runtime: timed ping emission + missed pong policy using existing `PingState`.
-4. Client implementation (connect + HTTP upgrade + validate response headers & negotiated subprotocol/extensions).
-5. Extension semantics (permessage-deflate stub, RSV bit enforcement) and documentation of extension safety.
-6. Formal proofs: masking involution → frame roundtrip → length safety; property-based fuzz harness (fragmentation, masking, random sizes).
-7. Performance passes: buffer reuse, zero-copy slices, optimized SHA‑1/Base64.
+1. ✅ **COMPLETED**: Integrate incremental buffered loop into server (multi-connection, non-blocking); concurrency & graceful shutdown primitives.
+2. ✅ **COMPLETED**: Close handshake orchestration (bidirectional: respond + drain + timeout) and structured disconnect events w/ code & reason.
+3. ✅ **COMPLETED**: Keepalive runtime: timed ping emission + missed pong policy using existing `PingState`.
+4. ✅ **COMPLETED**: Event subscription/dispatch system with filtering for easy integration.
+5. ✅ **COMPLETED**: Integration tests covering server functionality and new features.
+6. **NEXT**: Client implementation (connect + HTTP upgrade + validate response headers & negotiated subprotocol/extensions).
+7. **NEXT**: Extension semantics (permessage-deflate stub, RSV bit enforcement) and documentation of extension safety.
+8. **NEXT**: Formal proofs: masking involution → frame roundtrip → length safety; property-based fuzz harness (fragmentation, masking, random sizes).
+9. **NEXT**: Performance passes: buffer reuse, zero-copy slices, optimized SHA‑1/Base64.
 
 ## Building
 Requires Lean 4 toolchain (see `lean-toolchain`).

@@ -33,3 +33,4 @@ lean_exe echoClient where
   moreLinkArgs := #["c/ws_socket.o"]
 lean_exe tests where
   root := `WebSocket.Tests.Main
+  moreLinkArgs := #["c/ws_socket.o"]

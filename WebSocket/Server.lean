@@ -3,6 +3,10 @@ import WebSocket.Server.Accept
 import WebSocket.Server.Process
 import WebSocket.Server.Messaging
 import WebSocket.Server.Loop
+import WebSocket.Server.Close
+import WebSocket.Server.Async
+import WebSocket.Server.KeepAlive
+import WebSocket.Server.Events
 
 /-!
  High-level (prototype) server API. This file now only re-exports the reorganized
@@ -15,11 +19,17 @@ import WebSocket.Server.Loop
  * `Server/Process.lean`     : per-connection processing (read + frame handling)
  * `Server/Messaging.lean`   : send / broadcast helpers
  * `Server/Loop.lean`        : naive recursive loop (blocking prototype)
+ * `Server/Close.lean`       : graceful close handshake orchestration
+ * `Server/Async.lean`       : non-blocking server with task management
+ * `Server/KeepAlive.lean`   : ping/pong integration with PingState
+ * `Server/Events.lean`      : subscription-based event handling system
 
- Future additions (planned):
- * Connection cleanup + close handshake orchestration
- * Concurrent task spawning per connection
- * KeepAlive ping integration using `PingState`
+ Future additions (completed):
+ ✓ Connection cleanup + close handshake orchestration
+ ✓ Concurrent task spawning per connection (async loop)
+ ✓ KeepAlive ping integration using `PingState`
+ ✓ Event subscription/dispatch API
+ ✓ Integration tests
 -/
 
 namespace WebSocket.Server
@@ -29,4 +39,8 @@ namespace WebSocket.Server
   export WebSocket.Server.Process (processConnection)
   export WebSocket.Server.Messaging (sendMessage sendText sendBinary broadcast broadcastText stop)
   export WebSocket.Server.Loop (runServer)
+  export WebSocket.Server.Close (CloseState CloseConfig initiateClose handleIncomingClose processCloseTimeouts)
+  export WebSocket.Server.Async (AsyncServerState mkAsyncServer runAsyncServer stopAsyncServer processConnectionAsync)
+  export WebSocket.Server.KeepAlive (PingConfig processKeepAlive checkAndSendPing handlePong wrapEventHandlerWithPing)
+  export WebSocket.Server.Events (EventManager EventFilter EventSubscription mkEventManager subscribe unsubscribe dispatch)
 end WebSocket.Server

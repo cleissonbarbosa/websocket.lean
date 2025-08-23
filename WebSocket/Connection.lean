@@ -68,7 +68,7 @@ def drainBuffer (ls : LoopState) : (LoopState × List (OpCode × ByteArray)) :=
     | Nat.succ fuel' =>
     match decodeFrameEnhanced buf with
     | .incomplete => (buf, c, acc.reverse)
-    | .violation v =>
+    | .violation _ =>
       -- On violation, emit no further events; higher layer will likely close connection separately.
       (ByteArray.empty, c, acc.reverse)
     | .success r =>

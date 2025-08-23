@@ -28,6 +28,9 @@ lean_exe echoServer where
 lean_exe advancedEchoServer where
   root := `WebSocket.Examples.AdvancedEchoServer
   moreLinkArgs := #["c/ws_socket.o"]
+lean_exe EnhancedEchoServer where
+  root := `WebSocket.Examples.EnhancedEchoServer
+  moreLinkArgs := #["c/ws_socket.o"]
 lean_exe echoClient where
   root := `WebSocket.Examples.EchoClient
   moreLinkArgs := #["c/ws_socket.o"]

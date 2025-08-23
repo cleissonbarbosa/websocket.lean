@@ -4,6 +4,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/random.h>
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -116,4 +118,49 @@ lean_obj_res ws_send_bytes(int fd, lean_object *ba)
   if (sent < 0)
     return mk_io_error_from_errno(errno);
   return lean_io_result_mk_ok(lean_box((unsigned)sent));
+}
+
+// Connect to a TCP server (blocking connect, then set non-blocking)
+lean_obj_res ws_connect(b_lean_obj_arg host, int port) {
+  const char *h = lean_string_cstr(host);
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return mk_io_error_from_errno(errno);
+  struct sockaddr_in addr; memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET; addr.sin_port = htons(port);
+  // Try dotted-quad first
+  if (inet_pton(AF_INET, h, &addr.sin_addr) <= 0) {
+    // fallback to DNS lookup
+    struct hostent *he = gethostbyname(h);
+    if (!he || he->h_addrtype != AF_INET) {
+      int e = errno; close(fd); return mk_io_error_from_errno(e ? e : EINVAL);
+    }
+    memcpy(&addr.sin_addr, he->h_addr_list[0], sizeof(struct in_addr));
+  }
+  if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    int e = errno; close(fd); return mk_io_error_from_errno(e);
+  }
+  set_nonblocking(fd); // best-effort
+  return lean_io_result_mk_ok(lean_box(fd));
+}
+
+// Secure random bytes (cryptographic). Uses getrandom when available, else /dev/urandom.
+lean_obj_res ws_random_bytes(size_t n) {
+  lean_object *ba = lean_alloc_sarray(sizeof(uint8_t), n, n);
+#ifdef __linux__
+  ssize_t got = getrandom(lean_sarray_cptr(ba), n, 0);
+  if (got < 0 || (size_t)got != n) {
+    lean_dec_ref(ba);
+    return mk_io_error_from_errno(errno);
+  }
+#else
+  int fd = open("/dev/urandom", O_RDONLY);
+  if (fd < 0) { lean_dec_ref(ba); return mk_io_error_from_errno(errno); }
+  size_t off = 0; while (off < n) {
+    ssize_t r = read(fd, ((uint8_t*)lean_sarray_cptr(ba)) + off, n - off);
+    if (r <= 0) { int e = errno; close(fd); lean_dec_ref(ba); return mk_io_error_from_errno(e); }
+    off += (size_t)r;
+  }
+  close(fd);
+#endif
+  return lean_io_result_mk_ok(ba);
 }

@@ -40,7 +40,7 @@ namespace WebSocket.Server
   export WebSocket.Server.Messaging (sendMessage sendText sendBinary broadcast broadcastText stop)
   export WebSocket.Server.Loop (runServer)
   export WebSocket.Server.Close (CloseState CloseConfig initiateClose handleIncomingClose processCloseTimeouts)
-  export WebSocket.Server.Async (AsyncServerState mkAsyncServer runAsyncServer stopAsyncServer processConnectionAsync)
+  export WebSocket.Server.Async (AsyncServerState mkAsyncServer runAsyncServer runAsyncServerUpdating stopAsyncServer processConnectionAsync)
   export WebSocket.Server.KeepAlive (PingConfig processKeepAlive checkAndSendPing handlePong wrapEventHandlerWithPing)
   export WebSocket.Server.Events (EventManager EventFilter EventSubscription mkEventManager subscribe unsubscribe dispatch)
 end WebSocket.Server

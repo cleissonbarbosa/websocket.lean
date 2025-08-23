@@ -112,4 +112,35 @@ def stopAsyncServer (server : AsyncServerState) : IO Unit := do
       let _ ← initiateClose server.base task.connId
       pure ()
 
+/-- Variant of the async loop that keeps an IO.Ref with the latest server state updated.
+    This allows external handlers (that capture the ref) to observe newly accepted connections
+    when performing side-effect actions like echoing messages. -/
+partial def runAsyncServerUpdating (srvRef : IO.Ref AsyncServerState) (handler : EventHandler) : IO Unit := do
+  let server ← srvRef.get
+  let shouldStop ← server.shouldStop.get
+  if shouldStop then
+    return ()
+  -- Accept new connections
+  let (server1, eventOpt) ← acceptWithTimeout server 50
+  let mut currentServer := server1
+  match eventOpt with
+  | some event =>
+      handler event
+      match event with
+      | .connected connId _ =>
+          let timestamp ← IO.monoNanosNow
+          let newTask : ConnectionTask := { connId, active := true, lastActivity := UInt64.ofNat timestamp }
+          currentServer := { currentServer with tasks := newTask :: currentServer.tasks }
+      | _ => pure ()
+  | none => pure ()
+  -- Process connections
+  currentServer ← processAllConnections currentServer handler
+  -- Close timeouts
+  let newBase ← processCloseTimeouts currentServer.base
+  currentServer := { currentServer with base := newBase }
+  -- Persist updated state
+  srvRef.set currentServer
+  IO.sleep 10
+  runAsyncServerUpdating srvRef handler
+
 end WebSocket.Server.Async

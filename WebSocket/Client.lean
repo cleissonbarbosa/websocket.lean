@@ -1,5 +1,6 @@
 import WebSocket
 import WebSocket.Net
+import WebSocket.Random
 open WebSocket WebSocket.Net
 
 namespace WebSocket.Client
@@ -99,12 +100,14 @@ def sendMessage (client : ClientState) (opcode : OpCode) (payload : ByteArray) :
     return client
   | some tcpConn =>
     try
+      let mk ← randomMaskingKeyIO
       let frame : Frame := {
         header := { opcode := opcode, masked := true, payloadLen := payload.size },
-        maskingKey? := some (randomMaskingKey 42),  -- TODO: Use proper random key
+        maskingKey? := some mk,
         payload := payload
       }
-      tcpConn.transport.send (encodeFrame frame)
+  let t := tcpConn.transport.toTransport
+  t.send (encodeFrame frame)
       return client
     catch e =>
       IO.println s!"Failed to send message: {e}"
@@ -130,8 +133,9 @@ def close (client : ClientState) (code : CloseCode := .normalClosure) (reason : 
   | some tcpConn =>
     try
       let closeFrame := buildCloseFrame code reason
-      tcpConn.transport.send (encodeFrame closeFrame)
-      tcpConn.transport.close
+  let t := tcpConn.transport.toTransport
+  t.send (encodeFrame closeFrame)
+  t.close
       return { client with conn := none, connected := false }
     catch _ =>
       return { client with conn := none, connected := false }

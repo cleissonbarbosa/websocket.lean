@@ -1,4 +1,6 @@
 import WebSocket
+import WebSocket.Handshake
+import WebSocket.Random
 open WebSocket
 
 namespace WebSocket.Net
@@ -22,6 +24,9 @@ opaque sendImpl (fd : UInt32) (data : ByteArray) : IO UInt32
 
 @[extern "ws_set_nonblocking"]
 opaque setNonblockingImpl (fd : UInt32) : IO Unit
+
+@[extern "ws_connect"]
+opaque connectImpl (host : @& String) (port : UInt32) : IO UInt32
 
 /-- Handle for a listening socket -/
 structure ListenHandle where
@@ -72,11 +77,10 @@ def openServer (port : UInt32) : IO ListenHandle := do
   let fd ← listenImpl port
   pure { fd }
 
-/-- Accept connection and perform WebSocket handshake -/
-def acceptAndUpgrade (lh : ListenHandle) : IO (Option TcpConn) := do
+/-/ Accept connection and perform WebSocket handshake -/
+def acceptAndUpgrade (lh : ListenHandle) : IO (Option TcpConn) :=
   try
     let clientFd ← acceptImpl lh.fd
-    -- best-effort non-blocking
     (try setNonblockingImpl clientFd catch _ => pure ())
     let requestBytes ← recvImpl clientFd 4096
     let requestString := String.fromUTF8! requestBytes
@@ -88,18 +92,43 @@ def acceptAndUpgrade (lh : ListenHandle) : IO (Option TcpConn) := do
         let responseBytes := ByteArray.mk responseText.toUTF8.data
         let _ ← sendImpl clientFd responseBytes
         let transport ← mkTcpTransport clientFd
-        return some { transport, assembler := {}, pingState := {} }
+        pure (some { transport, assembler := {}, pingState := {} })
     | none =>
         closeImpl clientFd
-        return none
-  catch _ =>
-    return none
+        pure none
+  catch _ => pure none
 
-/-- Connect to WebSocket server (client-side) -/
-def connectClient (_ : String) (_ : UInt32) (_ : String := "/") : IO (Option TcpConn) := do
-  -- TODO: Implement client connection
-  -- For now, return none as client functionality is not yet implemented
-  return none
+/-/ Connect to WebSocket server (client-side) -/
+def connectClient (host : String) (port : UInt32) (resource : String := "/") (subprotocols : List String := []) : IO (Option TcpConn) :=
+  try
+    let fd ← connectImpl host port
+    let key ← secureWebSocketKey
+    let baseHeaders := [
+      ("Host", host), ("Upgrade","websocket"), ("Connection","Upgrade"), ("Sec-WebSocket-Key", key), ("Sec-WebSocket-Version","13")
+    ]
+    let protoHeader := if subprotocols.isEmpty then [] else [("Sec-WebSocket-Protocol", String.intercalate ", " subprotocols)]
+    let requestLines := [s!"GET {resource} HTTP/1.1"] ++ (baseHeaders ++ protoHeader).map (fun (k,v) => s!"{k}: {v}") ++ ["",""]
+    let raw := String.intercalate "\r\n" requestLines
+    let _ ← sendImpl fd (ByteArray.mk raw.toUTF8.data)
+    let respBytes ← recvImpl fd 4096
+    let respStr := String.fromUTF8! respBytes
+    if respStr.startsWith "HTTP/1.1 101" then
+      let lines := respStr.splitOn "\r\n"
+      let headers := lines.tail!.takeWhile (· ≠ "")
+      let accept? := headers.findSome? (fun l =>
+        match l.splitOn ":" with
+        | k::rest => if lower k.trim = "sec-websocket-accept" then some ((String.intercalate ":" rest).trim) else none
+        | _ => none)
+      match accept? with
+      | some acceptVal =>
+          let expected := acceptKey key
+          if acceptVal = expected then
+            let transport ← mkTcpTransport fd
+            pure (some { transport, assembler := {}, pingState := {} })
+          else (do closeImpl fd; pure none)
+      | none => (do closeImpl fd; pure none)
+    else (do closeImpl fd; pure none)
+  catch _ => pure none
 
 end WebSocket.Net
 

@@ -5,44 +5,14 @@ Experimental native Lean 4 implementation (self‑contained, pure Lean) of the W
 ## ✨ Recent Refactor (Modularization)
 The original monolithic `WebSocket.lean` file was split into focused Lean source files. All symbols still live in the single namespace `WebSocket`, so existing user code that did `import WebSocket` keeps working.
 
-Module files (all under `WebSocket/` unless noted):
-
-| File | Responsibility |
-|------|----------------|
-| `Core/Types.lean` | Core protocol types: `OpCode`, `FrameHeader`, `Frame`, `ProtocolViolation`, masking key, etc. |
-| `Core/Frames.lean` | Encode/decode logic + validation (`encodeFrame`, `decodeFrameEnhanced` / `decodeFrame`, `validateFrame`). |
-| `Handshake.lean` | Handshake request/response models, header utilities, `acceptKey`. |
-| `Upgrade.lean` | High-level upgrade functions (`upgradeE`, `upgrade`, `upgradeWithConfig`, `upgradeWithFullConfig`, `upgradeRaw`). |
-| `Subprotocols.lean` | Subprotocol negotiation (`SubprotocolConfig`, `selectSubprotocol`). |
-| `Extensions.lean` | Parsing + negotiation scaffolding for `Sec-WebSocket-Extensions`. |
-| `Close.lean` | Close codes + `parseClosePayload`. |
-| `Assembler.lean` | Fragmentation reassembly and close-frame builders (`processFrame`, `buildCloseFrame*`). |
-| `Connection.lean` | Minimal transport abstraction + frame handling loop (`Transport`, `Conn`, `runLoop`, `handleIncoming` w/ enhanced decoder + auto-close on violation). |
-| `KeepAlive.lean` | Ping/pong strategy + state (`PingState`, `KeepAliveStrategy`). |
-| `Random.lean` | Simple deterministic RNG for masking fuzz (`RNG`, `randomMaskingKey`). |
-| `UTF8.lean` | UTF‑8 validation used for text frames & close reasons. |
-| `Crypto/Base64.lean` | Base64 implementation used in handshake. |
-| `Crypto/SHA1.lean` | SHA‑1 implementation used in handshake. |
-| `HTTP.lean` | Minimal HTTP request parser for upgrade. |
-| `Net.lean` (WIP) | FFI socket shim integration (listen/accept + `acceptAndUpgradeWithConfig`). |
-| `Server.lean` | Agregador que re-exporta submódulos de servidor (agora com funcionalidades avançadas). |
-| `Server/Types.lean` | Configuração (`ServerConfig`), eventos (`ServerEvent`), estados (`ServerState`, `ConnectionState`). |
-| `Server/Accept.lean` | Abertura de porta (`start`) e handshake/aceitação (`acceptConnection`). |
-| `Server/Process.lean` | Processamento de frames recebidos por conexão (`processConnection`). |
-| `Server/Messaging.lean` | Envio e broadcast (`sendMessage`, `sendText`, `broadcast*`, `stop`). |
-| `Server/Loop.lean` | Loop recursivo protótipo (`runServer`). |
-| `Server/Close.lean` | ✨ **NOVO**: Handshake de fechamento gracioso (`initiateClose`, `handleIncomingClose`, timeout handling). |
-| `Server/Async.lean` | ✨ **NOVO**: Servidor não-bloqueante com gerenciamento de tarefas (`AsyncServerState`, `runAsyncServer`). |
-| `Server/KeepAlive.lean` | ✨ **NOVO**: Integração de ping/pong com `PingState` (`processKeepAlive`, timeout detection). |
-| `Server/Events.lean` | ✨ **NOVO**: Sistema de subscrição a eventos (`EventManager`, `subscribe`, `dispatch`, filtros). |
-| `Protocol.lean` | Additional negotiation strategies + re-export of violation→close mapping. |
-
 Why a flat namespace? Keeping every module inside `namespace WebSocket` avoids breaking existing imports and simplifies referencing (no `WebSocket.Handshake.HandshakeRequest`, just `WebSocket.HandshakeRequest`). If future API versioning or hierarchical visibility is desired, we can introduce nested namespaces with compatibility aliases.
 
 ### Quick Import Examples
 ```lean
 import WebSocket
-open WebSocket
+import WebSocket.Server
+import WebSocket.Server.Events
+open WebSocket WebSocket.Server
 
 -- Build a close frame
 def demoClose : Frame := buildCloseFrame CloseCode.normalClosure "bye"
@@ -50,14 +20,17 @@ def demoClose : Frame := buildCloseFrame CloseCode.normalClosure "bye"
 -- Perform a basic upgrade from raw HTTP
 def maybeResp := upgradeRaw "GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
 
--- ✨ NEW: Enhanced server with event subscriptions
-import WebSocket.Server
-import WebSocket.Server.Events
-
-let server ← mkAsyncServer { port := 9001 }
-let mut eventManager := mkEventManager
-let (em, _) := subscribeToTextMessages eventManager (fun event => IO.println s"Got: {event}")
-runAsyncServer server (dispatch em)
+-- Async server + event system (simplified):
+def runDemo : IO Unit := do
+	let srv ← mkAsyncServer { port := 9001 }
+	let em0 := mkEventManager
+	-- Subscribe to every text message
+	let handler : EventHandler := fun ev =>
+		match ev with
+		| .message id .text payload => IO.println s!"[text:{id}] {String.fromUTF8! payload}"
+		| _ => pure ()
+	let (em1, _) := subscribe em0 (.message none) handler
+	runAsyncServer srv (dispatch em1)
 ```
 
 ## Status
@@ -68,7 +41,7 @@ runAsyncServer server (dispatch em)
 ✨ **NEW FEATURES (v0.2.0):**
 - **Event subscription system**: Subscribe to specific events with filters (`EventManager`, `subscribe`, `dispatch`)
 - **Graceful close handshake**: Proper WebSocket close protocol with timeout handling (`initiateClose`, `processCloseTimeouts`)
-- **Async server loop**: Non-blocking server with task management (`AsyncServerState`, `runAsyncServer`)
+- **Async server loop**: Non-blocking server with task management (`AsyncServerState`, `runAsyncServer`, `runAsyncServerUpdating`)
 - **Keep-alive integration**: Automated ping/pong with configurable intervals and timeout detection
 - **Comprehensive integration tests**: Full test suite for new functionality
 
@@ -162,7 +135,7 @@ Run tests:
 lake exe tests
 ```
 
-## Example: Minimal echo server prototype (in-progress networking)
+## Example: Minimal Echo Server (Blocking Prototype)
 ```lean
 import WebSocket
 import WebSocket.Net
@@ -193,7 +166,44 @@ def main : IO Unit := do
 		| none => IO.println "Handshake failed / timeout"; acceptLoop
 	acceptLoop
 ```
-NOTE: This is a blocking, single-connection-at-a-time demonstration; no concurrency, fragmentation buffering done only inside `handleIncoming` for individual frames. Production design should spawn lightweight tasks per connection and use an incremental buffer reader.
+NOTE: This is a blocking, single-connection-at-a-time demonstration kept for historical context. Prefer the async example below.
+
+## Example: Enhanced Async Echo Server (current approach)
+
+See `WebSocket/Examples/EnhancedEchoServer.lean` for the full version (keep-alive + events + echo). A reduced core excerpt:
+
+```lean
+import WebSocket
+import WebSocket.Server
+import WebSocket.Server.Events
+open WebSocket WebSocket.Server
+
+def main : IO Unit := do
+	let cfg : ServerConfig := { port := 9001, pingInterval := 15, maxMissedPongs := 2 }
+	-- Create & start base inside async wrapper
+	let async0 ← mkAsyncServer cfg
+	let started ← WebSocket.Server.Accept.start async0.base
+	let async := { async0 with base := started }
+
+	-- Event manager + echo side-effects via IO.Ref updated by runAsyncServerUpdating
+	let em0 := mkEventManager
+	let (em1, _) := subscribe em0 (.message none) (fun ev => match ev with
+		| .message id .text payload => IO.println s!"[recv {id}] {String.fromUTF8! payload}"
+		| _ => pure ())
+
+	let ref ← IO.mkRef async
+	let handler : EventHandler := fun ev => do
+		dispatch em1 ev
+		match ev with
+		| .message id .text payload => do
+				let s ← ref.get
+				let sBase ← WebSocket.Server.Messaging.sendText s.base id s!"Echo: {String.fromUTF8! payload}"
+				ref.set { s with base := sBase }
+		| _ => pure ()
+	runAsyncServerUpdating ref handler
+```
+
+`runAsyncServerUpdating` mantém o `AsyncServerState` sincronizado com novas conexões, permitindo que handlers façam side‑effects (envio de frames) sem “perder” a conexão recém aceita.
 
 ## Usage (future planned API)
 ```lean

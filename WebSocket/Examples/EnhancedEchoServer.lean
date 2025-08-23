@@ -4,7 +4,8 @@ import WebSocket.Server
 import WebSocket.Server.Events
 import WebSocket.Server.KeepAlive
 import WebSocket.Server.Async
-open WebSocket WebSocket.Net WebSocket.Server
+import WebSocket.Server.Messaging
+open WebSocket WebSocket.Net WebSocket.Server WebSocket.Server.Async
 
 /-!
  Enhanced Echo Server Example
@@ -16,95 +17,100 @@ open WebSocket WebSocket.Net WebSocket.Server
  * Async server loop
 -/
 
+namespace WebSocket.Examples
+
+open WebSocket.Server.Async
+
+/-- Helper: send text via AsyncServerState updating internal base. -/
+def sendTextAsync (s : AsyncServerState) (connId : Nat) (text : String) : IO AsyncServerState := do
+  let newBase ← WebSocket.Server.Messaging.sendText s.base connId text
+  return { s with base := newBase }
+
+/-- Helper: send binary via AsyncServerState updating internal base. -/
+def sendBinaryAsync (s : AsyncServerState) (connId : Nat) (data : ByteArray) : IO AsyncServerState := do
+  let newBase ← WebSocket.Server.Messaging.sendBinary s.base connId data
+  return { s with base := newBase }
+
+/-- Run the enhanced echo server using the async loop. -/
 def main : IO Unit := do
-  -- Create async server with custom config
   let config : ServerConfig := {
     port := 9001,
     maxConnections := 50,
-    pingInterval := 15,  -- 15 second ping interval
+    pingInterval := 15,
     maxMissedPongs := 2,
-    maxMessageSize := 2 * 1024 * 1024  -- 2MB
+    maxMessageSize := 2 * 1024 * 1024
   }
 
-  let asyncServer ← mkAsyncServer config
+  -- Create async server and start listening
+  let asyncSrv0 ← mkAsyncServer config
+  let startedBase ← WebSocket.Server.Accept.start asyncSrv0.base
+  let asyncSrv := { asyncSrv0 with base := startedBase }
 
-  -- Set up event management
+  -- Event manager setup
   let mut eventManager := mkEventManager
 
-  -- Connection handler
+  -- Handlers for subscription (logging only)
   let connectionHandler : EventHandler := fun event => do
     match event with
-    | .connected id addr =>
-        IO.println s"🔗 Client {id} connected from {addr}"
-    | .disconnected id reason =>
-        IO.println s"❌ Client {id} disconnected: {reason}"
+    | .connected id addr => IO.println s!"🔗 Client {id} connected from {addr}"
+    | .disconnected id reason => IO.println s!"❌ Client {id} disconnected: {reason}"
     | _ => pure ()
 
-  -- Message handler with echo functionality
-  let serverRef ← IO.mkRef asyncServer.base
-  let messageHandler : EventHandler := fun event => do
+  let messageLogger : EventHandler := fun event => do
     match event with
     | .message id .text payload =>
-        let text := String.fromUTF8! payload
-        IO.println s"💬 Text from {id}: {text}"
-        -- Echo the message back
-        let server ← serverRef.get
-        let newServer ← sendText server id s"Echo: {text}"
-        serverRef.set newServer
+        IO.println s!"💬 Text from {id}: {String.fromUTF8! payload}"
     | .message id .binary payload =>
-        IO.println s"📦 Binary from {id}: {payload.size} bytes"
-        -- Echo binary data back
-        let server ← serverRef.get
-        let newServer ← sendBinary server id payload
-        serverRef.set newServer
-    | .message id .ping payload =>
-        IO.println s"🏓 Ping from {id}"
-        -- Pong is handled automatically by the protocol layer
-    | .message id .pong payload =>
-        IO.println s"🏓 Pong from {id}"
+        IO.println s!"📦 Binary from {id}: {payload.size} bytes"
+    | .message id .ping _ => IO.println s!"🏓 Ping from {id}"
+    | .message id .pong _ => IO.println s!"🏓 Pong from {id}"
     | _ => pure ()
 
-  -- Error handler
   let errorHandler : EventHandler := fun event => do
     match event with
-    | .error id msg =>
-        IO.println s"⚠️  Error on connection {id}: {msg}"
+    | .error id msg => IO.println s!"⚠️  Error on connection {id}: {msg}"
     | _ => pure ()
 
-  -- Subscribe to different event types
-  let (em1, _) := subscribeToConnections eventManager connectionHandler
-  let (em2, _) := subscribe em1 (.message none) messageHandler
-  let (em3, _) := subscribeToErrors em2 errorHandler
-  eventManager := em3
+  let (em1, _) := subscribe eventManager .connected connectionHandler
+  let (em2, _) := subscribe em1 .disconnected connectionHandler
+  let (em3, _) := subscribe em2 (.message none) messageLogger
+  let (em4, _) := subscribe em3 .error errorHandler
+  eventManager := em4
 
-  -- Enhanced event handler that dispatches to subscribers
-  let enhancedHandler : EventHandler := fun event => do
-    dispatch eventManager event
+  -- A mutable ref to hold async server state for echo side-effects inside handler
+  let srvRef ← IO.mkRef asyncSrv
 
-  -- Set up keep-alive with ping wrapping
-  let pingConfig : KeepAlive.PingConfig := {
-    intervalMs := 15000,  -- 15 seconds
-    maxMissedPongs := 3,
-    timeoutMs := 5000     -- 5 second ping timeout
-  }
+  -- Unified handler: dispatch events then perform echo side-effects
+  let enhancedHandler : EventHandler := fun ev => do
+    dispatch eventManager ev
+    match ev with
+    | .message id .text payload => do
+        let txt := String.fromUTF8! payload
+        let s ← srvRef.get
+        let s ← sendTextAsync s id s!"Echo: {txt}"
+        srvRef.set s
+    | .message id .binary payload => do
+        let s ← srvRef.get
+        let s ← sendBinaryAsync s id payload
+        srvRef.set s
+    | _ => pure ()
 
-  let wrappedHandler := wrapEventHandlerWithPing serverRef pingConfig enhancedHandler
-
-  IO.println s"🚀 Enhanced WebSocket server starting on port {config.port}"
+  IO.println s!"🚀 Enhanced Async WebSocket server starting on port {config.port}"
   IO.println "Features enabled:"
   IO.println "  ✓ Event subscription system"
   IO.println "  ✓ Keep-alive pings every 15s"
   IO.println "  ✓ Graceful close handling"
-  IO.println "  ✓ Async connection processing"
+  IO.println "  ✓ Async processing loop"
   IO.println "  ✓ Auto-echo for text and binary messages"
   IO.println ""
-  IO.println "Press Ctrl+C to stop gracefully..."
+  IO.println "Press Ctrl+C to stop gracefully... (Ctrl+C will terminate the process)"
 
-  -- Install signal handler for graceful shutdown
-  try
-    runAsyncServer asyncServer wrappedHandler
-  catch e =>
-    IO.println s"Server error: {e}"
-  finally
-    IO.println "🛑 Server shutting down..."
-    stopAsyncServer asyncServer
+  -- Run the async loop updating the shared state ref.
+  runAsyncServerUpdating srvRef enhancedHandler
+
+  IO.println "🛑 Server stopped"
+
+end WebSocket.Examples
+
+-- Expose a top-level `main` so Lake can build the executable.
+def main : IO Unit := WebSocket.Examples.main

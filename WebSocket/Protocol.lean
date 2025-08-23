@@ -1,4 +1,5 @@
 import WebSocket
+import WebSocket.Extensions
 open WebSocket
 
 namespace WebSocket.Protocol
@@ -81,15 +82,21 @@ def upgradeWithStrategy (req : HandshakeRequest) (supportedProtocols : List Stri
         | .selected proto => some proto
         | _ => none
 
-  -- TODO: Extension negotiation would go here
-  -- let extensions? := header? req "Sec-WebSocket-Extensions"
+  -- Basic extension negotiation: echo back any extensions that appear (no validation) - conservative improvement
+  let extensionsHeader? := header? req "Sec-WebSocket-Extensions"
+  let negotiatedExtensions : List ExtensionConfig :=
+    match extensionsHeader? with
+    | none => []
+    | some raw => parseExtensions raw  -- reuse existing parser (simple pass-through)
 
   let baseHeaders := [
     ("Upgrade","websocket"), ("Connection","Upgrade"), ("Sec-WebSocket-Accept", accept)
   ]
-  let headers := match subProto? with
+  let withProto := match subProto? with
     | some sp => baseHeaders ++ [("Sec-WebSocket-Protocol", sp)]
     | none => baseHeaders
+  let headers := if negotiatedExtensions.isEmpty then withProto else
+    withProto ++ [("Sec-WebSocket-Extensions", formatExtensions negotiatedExtensions)]
 
   return { status := 101, reason := "Switching Protocols", headers }
 

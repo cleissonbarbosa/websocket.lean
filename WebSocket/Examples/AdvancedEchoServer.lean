@@ -2,11 +2,15 @@ import WebSocket
 import WebSocket.Server
 open WebSocket WebSocket.Server
 
-/-- Enhanced echo server with high-level API -/
+/-- Minimal advanced echo prototype (single connection, sequential loop). -/
+
 def main : IO Unit := do
+  -- CLI arg parsing disabled (IO.getArgs unavailable); using defaults
+  let port := 9001
+  let maxConns := 50
   let config : ServerConfig := {
-    port := 9001,
-    maxConnections := 50,
+    port := UInt32.ofNat port,
+    maxConnections := maxConns,
     pingInterval := 30,
     subprotocols := ["echo", "chat"]
   }
@@ -14,53 +18,50 @@ def main : IO Unit := do
   let server := mkServer config
   let server ← start server
 
-  -- Event handler
-  let handleEvent : EventHandler := fun event => do
-    match event with
-    | .connected id addr =>
-        IO.println s!"Client {id} connected from {addr}"
-    | .disconnected id reason =>
-        IO.println s!"Client {id} disconnected: {reason}"
-    | .message id opcode payload =>
-        match opcode with
-        | .text =>
-            let message := String.fromUTF8! payload
-            IO.println s!"Received text from {id}: {message}"
-            -- Echo the message back
-            let _ ← sendText server id s!"Echo: {message}"
-            pure ()
-        | .binary =>
-            IO.println s!"Received binary from {id}: {payload.size} bytes"
-            let _ ← sendBinary server id payload
-            pure ()
-        | .ping =>
-            IO.println s!"Received ping from {id}"
-        | .close =>
-            IO.println s!"Received close from {id}"
-        | _ =>
-            IO.println s!"Received {opcode} from {id}"
-    | .error id error =>
-        IO.println s!"Error from client {id}: {error}"
+  -- Simple printer (no echo logic) — echo performed in processing loop where we can update server state.
+  let handleEvent : EventHandler := fun ev =>
+    match ev with
+    | .connected id addr => IO.println s!"Client {id} connected from {addr}"
+    | .disconnected id reason => IO.println s!"Client {id} disconnected: {reason}"
+    | .message id opc payload =>
+        match opc with
+        | .text => IO.println s!"[print] text from {id}: {(String.fromUTF8! payload)}"
+        | .binary => IO.println s!"[print] binary from {id}: {payload.size} bytes"
+        | .ping => IO.println s!"[print] ping from {id}"
+        | .pong => IO.println s!"[print] pong from {id}"
+        | .close => IO.println s!"[print] close from {id}"
+        | .continuation => IO.println s!"[print] continuation (ignored) from {id}"
+    | .error id err => IO.println s!"Error from client {id}: {err}"
 
-  IO.println "Enhanced WebSocket server started. Press Ctrl+C to stop."
+  IO.println s!"Enhanced WebSocket server started on port {port}. Press Ctrl+C to stop."
 
   -- For now, just handle one connection as a demonstration
   -- In a real server, you'd want proper concurrent connection handling
   let (server', eventOpt) ← acceptConnection server
   match eventOpt with
   | some event =>
-    handleEvent event
-    match event with
-    | .connected connId _ =>
-      -- Simple message processing loop for demonstration
-      let mut currentServer := server'
-      for _ in [0:10] do  -- Process up to 10 message exchanges
-        let (newServer, events) ← processConnection currentServer connId
-        currentServer := newServer
-        for event in events do
-          handleEvent event
-        IO.sleep 1000  -- Wait 1 second between processing rounds
+      handleEvent event
+      match event with
+      | .connected connId _ =>
+          let mut cur := server'
+          for _ in [0:10] do
+            let (cur', events) ← processConnection cur connId
+            cur := cur'
+            for ev in events do
+              match ev with
+              | .message cid .text payload =>
+                  handleEvent ev
+                  let msg := String.fromUTF8! payload
+                  cur ← sendText cur cid s!"Echo: {msg}"
+              | .message cid .binary payload =>
+                  handleEvent ev
+                  cur ← sendBinary cur cid payload
+              | _ => handleEvent ev
+            IO.sleep 500
+      | _ => pure ()
   | none => IO.println "Failed to accept connection"
 
-  stop server'
+  match eventOpt with
+  | some _ => stop server'
+  | none => pure ()
   IO.println "Server stopped"

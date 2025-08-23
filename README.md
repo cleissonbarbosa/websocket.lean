@@ -64,15 +64,15 @@ Implemented pieces (now organized across modules):
 
 Remaining / Next TODO (updated after modular split):
 * Networking:
-	- (IN PROGRESS) Native TCP socket FFI shim (`c/ws_socket.c`) + `WebSocket.Net` accept & handshake helpers.
+	- (IN PROGRESS) Native TCP socket FFI shim (`c/ws_socket.c`) + `WebSocket.Net` accept & handshake helpers. (basic listen/accept + upgrade implemented)
 	- Integrate incremental loop with real socket transport (current shim returns raw bytes; still missing continuous event pump with backpressure / partial frame accumulation at transport layer).
 	- TLS / WSS support (likely via external library binding; out of pure Lean scope initially).
 * Protocol completeness:
-	- Harden close reason validation (UTF‑8 + allowed codepoints) — text frame UTF‑8 already enforced.
+	- Harden close reason validation (UTF‑8 + allowed codepoints) — text frame UTF‑8 already enforced; close reason filtering partially present (printable + control subset) but needs full RFC constraints.
 	- Advanced subprotocol selection policies (server ordering, rejection rules already partially configurable via `SubprotocolConfig`).
 	- Extension negotiation beyond structural parsing (e.g. permessage-deflate parameters, compression toggles).
-	- Keepalive: integrate timing + missed pong tracking (`PingState` base exists) with loop scheduling.
-	- Additional violation detection (fragment sequencing invariants, size thresholds, reserved bit semantics for negotiated extensions).
+	- Keepalive: integrate timing + missed pong tracking (`PingState` base exists) with loop scheduling (strategy + missed pong counter implemented; not yet wired into loop timing logic).
+	- Additional violation detection: reserved bits (DONE), invalid opcodes (DONE), unexpected continuation (DONE), text invalid UTF‑8 (DONE), close payload validation (DONE), fragmentation sequencing (NEW: `fragmentSequenceError`), size thresholds (NEW: `oversizedMessage` with configurable max message size in `AssemblerState`), remaining: reserved bit semantics for negotiated extensions.
 	- Close handshake helper (bidirectional close, timeout & draining).
 * Formal verification / proofs:
 	- Replace masking involution axiom with a proof (now isolated in `Core/Frames.lean`).
@@ -81,8 +81,9 @@ Remaining / Next TODO (updated after modular split):
 	- (Optional) SHA‑1 spec refinement argument.
 * Testing:
 	- Property / fuzz tests for parser & roundtrip (random lengths, fragmentation patterns, masking) — scaffolding RNG present.
-	- Negative tests (malformed headers, invalid opcodes, partial frames, wrong extended length sizes).
+	- Negative tests (malformed headers, invalid opcodes, partial frames, wrong extended length sizes) — some covered, expand further.
 	- Deterministic seeds list for reproducible fuzz sessions.
+	- (NEW) Added tests for `oversizedMessage` and `fragmentSequenceError`.
 * API surface:
 	- High-level `Server` / `Client` combinators (current `Connection.lean` is low-level, single-connection oriented).
 	- Structured error & close event propagation events.
@@ -96,7 +97,7 @@ Remaining / Next TODO (updated after modular split):
 	- Fragmentation invariants & assembler guarantees (conditions for `.continue` vs `.violation`).
 	- Extending violation types + mapping to close codes (`violationCloseCode`).
 	- Subprotocol & extension negotiation customization cookbook.
-	- Keepalive behavior specification & liveness considerations.
+	- Keepalive behavior specification & liveness considerations (partially implemented behavior needs narrative/spec).
 
 ## 🧱 Design Notes
 * Flat namespace keeps ergonomics: every file contributes to `namespace WebSocket`.

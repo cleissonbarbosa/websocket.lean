@@ -1,4 +1,3 @@
--- Root module re-exporting public API (refactored).
 import WebSocket.Core.Types
 import WebSocket.Core.Frames
 import WebSocket.Handshake
@@ -16,5 +15,4 @@ import WebSocket.Crypto.SHA1
 import WebSocket.HTTP
 
 namespace WebSocket
--- All definitions already live in this namespace across files; nothing to re-export explicitly.
 end WebSocket

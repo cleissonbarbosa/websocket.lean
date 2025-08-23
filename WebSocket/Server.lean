@@ -12,7 +12,7 @@ structure ServerConfig where
   maxMissedPongs : Nat := 3
   maxMessageSize : Nat := 1024 * 1024  -- 1MB default
   subprotocols : List String := []
-  deriving Repr
+  -- no automatic instances needed
 
 /-- Server event types -/
 inductive ServerEvent
@@ -29,7 +29,7 @@ structure ConnectionState where
   addr : String := "unknown"
   subprotocol : Option String := none
   active : Bool := true
-  deriving Repr
+  -- no automatic instances needed
 
 /-- Server state -/
 structure ServerState where
@@ -37,7 +37,7 @@ structure ServerState where
   listenHandle : Option ListenHandle := none
   connections : List ConnectionState := []
   nextConnId : Nat := 1
-  deriving Repr
+  -- no automatic instances needed
 
 /-- Event handler type -/
 abbrev EventHandler := ServerEvent → IO Unit
@@ -85,20 +85,15 @@ def processConnection (server : ServerState) (connId : Nat) : IO (ServerState ×
     if ¬ connState.active then
       return (server, [])
     try
-      let bytes ← connState.conn.transport.recv
+      let baseConn : Conn := (connState.conn : Conn)
+      let bytes ← baseConn.transport.recv
       if bytes.size = 0 then
-        -- Connection closed
         let newConns := server.connections.filter (·.id ≠ connId)
         let newServer := { server with connections := newConns }
         return (newServer, [.disconnected connId "Connection closed"])
       else
-        let (newConn, events) ← WebSocket.handleIncoming connState.conn bytes
-        let tcpConn : TcpConn := {
-          transport := newConn.transport,
-          assembler := newConn.assembler,
-          pingState := newConn.pingState
-        }
-        let updatedConnState := { connState with conn := tcpConn }
+        let (newConn, events) ← WebSocket.handleIncoming baseConn bytes
+        let updatedConnState := { connState with conn := { transport := connState.conn.transport, assembler := newConn.assembler, pingState := newConn.pingState } }
         let newConns := server.connections.map (fun c => if c.id = connId then updatedConnState else c)
         let newServer := { server with connections := newConns }
         let serverEvents := events.map (fun (opc, payload) => ServerEvent.message connId opc payload)
@@ -116,15 +111,12 @@ def sendMessage (server : ServerState) (connId : Nat) (opcode : OpCode) (payload
     return server
   | some connState =>
     try
-      let frame : Frame := {
-        header := { opcode := opcode, masked := false, payloadLen := payload.size },
-        payload := payload
-      }
-      connState.conn.transport.send (encodeFrame frame)
+      let frame : Frame := { header := { opcode := opcode, masked := false, payloadLen := payload.size }, payload := payload }
+      let c : Conn := (connState.conn : Conn)
+      c.transport.send (encodeFrame frame)
       return server
     catch e =>
       IO.println s!"Failed to send to connection {connId}: {e}"
-      -- Remove failed connection
       let newConns := server.connections.filter (·.id ≠ connId)
       return { server with connections := newConns }
 
@@ -154,9 +146,9 @@ def broadcastText (server : ServerState) (text : String) : IO ServerState := do
 def stop (server : ServerState) : IO Unit := do
   for connState in server.connections do
     try
-      connState.conn.transport.close
-    catch _ =>
-      pure ()
+      let c : Conn := (connState.conn : Conn)
+      c.transport.close
+    catch _ => pure ()
   IO.println "Server stopped"
 
 /-- Simple server loop that handles one connection at a time -/

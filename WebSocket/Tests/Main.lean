@@ -198,6 +198,28 @@ def testFragmentation : IO Unit := do
       | _ => throw <| IO.userError "Second frame did not produce message"
   | _ => throw <| IO.userError "First frame not buffered"
 
+def testOversizedMessage : IO Unit := do
+  -- Set a tiny max size to force violation
+  let st : WebSocket.AssemblerState := { maxMessageSize? := some 5 }
+  let payload := ByteArray.mk "123456".toUTF8.data -- 6 bytes
+  let f : Frame := { header := { opcode := .text, masked := false, payloadLen := payload.size, fin := true }, payload := payload }
+  match WebSocket.processFrame st f with
+  | .violation .oversizedMessage => IO.println "Oversized message test passed"
+  | _ => throw <| IO.userError "Expected oversizedMessage"
+
+def testFragmentSequenceError : IO Unit := do
+  -- Start a fragmented message then send a new data frame without continuation
+  let part1 := ByteArray.mk "Hello".toUTF8.data
+  let f1 : Frame := { header := { opcode := .text, masked := false, payloadLen := part1.size, fin := false }, payload := part1 }
+  let st0 : WebSocket.AssemblerState := {}
+  let st1 := match WebSocket.processFrame st0 f1 with
+    | .continue st' => st'
+    | _ => panic! "Expected continue"
+  let f2 : Frame := { header := { opcode := .binary, masked := false, payloadLen := 1, fin := true }, payload := ByteArray.mk #[0x00] }
+  match WebSocket.processFrame st1 f2 with
+  | .violation .fragmentSequenceError => IO.println "Fragment sequence error test passed"
+  | _ => throw <| IO.userError "Expected fragmentSequenceError"
+
 def testPingScheduler : IO Unit := do
   let ps : WebSocket.PingState := { lastPing := 0, lastPong := 0, interval := 10, strategy := .pingPong 10 3 }
   if WebSocket.duePing 5 ps then throw <| IO.userError "Ping too early" else pure ()
@@ -242,6 +264,8 @@ def main : IO Unit := do
   testMaskedRoundtrip; testExtendedLengths; testControlValidation
   testUpgradeRaw; testSubprotocolNegotiation; testUpgradeErrors; testCloseFrames; testFragmentation; testPingScheduler; testUnexpectedContinuation; testAutoPong
   testViolationClose
+  testOversizedMessage
+  testFragmentSequenceError
   -- UTF-8 invalid sequence test
   let badBytes := ByteArray.mk #[0xC0,0xAF] -- overlong '/' U+002F
   let fBad : Frame := { header := { opcode := .text, masked := false, payloadLen := badBytes.size }, payload := badBytes }

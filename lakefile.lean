@@ -40,6 +40,7 @@ lean_exe chatServer where
 lean_exe echoClient where
   root := `Examples.EchoClient
   moreLeancArgs := #["-fPIC"]
+@[test_driver]
 lean_exe tests where
   root := `WebSocket.Tests.Main
   moreLeancArgs := #["-fPIC"]

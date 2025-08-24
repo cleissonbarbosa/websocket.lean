@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "*"
   workflow_dispatch:
     inputs:
       bump:
@@ -12,72 +9,7 @@ on:
         default: "patch"
 
 jobs:
-  tag-and-release:
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Install Lean toolchain
-        run: |
-          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain $(cat lean-toolchain)
-          echo "$HOME/.elan/bin" >> $GITHUB_PATH
-      - name: Build C object & library
-        run: |
-          make all
-      - name: Package artifacts
-        run: |
-          VER_TAG="${GITHUB_REF#refs/tags/}"
-          VER="${VER_TAG#v}"
-          mkdir -p dist
-          tar -czf dist/websocket-lean-${VER}-src.tgz \
-            README.md LICENSE lakefile.lean lean-toolchain VERSION WebSocket c/ws_socket.c
-          # Optionally include compiled objects (Linux)
-          tar -czf dist/websocket-lean-${VER}-linux-amd64-bin.tgz build/lib build/bin c/ws_socket.o || true
-
-      - name: Extract version from tag
-        id: ver
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          VER="${TAG#v}"
-          echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "$VER" > VERSION
-
-      - name: Update lakefile version (if needed)
-        run: |
-          VER=${{ steps.ver.outputs.version }}
-          sed -i -E "s/version := v!\"[0-9]+\.[0-9]+\.[0-9]+.*\"/version := v!\"${VER}\"/" lakefile.lean
-          if git diff --quiet lakefile.lean VERSION; then
-            echo "No version change in lakefile needed"
-          else
-            git config user.name "github-actions"
-            git config user.email "github-actions@users.noreply.github.com"
-            git add lakefile.lean VERSION
-            git commit -m "chore: sync version ${VER}"
-            git push
-          fi
-
-      - name: Generate release notes
-        id: notes
-        uses: release-drafter/release-drafter@v6
-        with:
-          disable-autolabeler: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: WebSocket Lean ${{ steps.ver.outputs.version }}
-          body: ${{ steps.notes.outputs.body || 'Automated release.' }}
-          files: |
-            dist/*.tgz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  bump-and-tag:
+  bump-tag-and-release:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -128,3 +60,38 @@ jobs:
           # Push commit (if any) then tag explicitly
           git push origin HEAD:main
           git push origin v${NEXT}
+
+      - name: Install Lean toolchain
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain $(cat lean-toolchain)
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+      - name: Build C object & library
+        run: |
+          make all
+      - name: Package artifacts
+        run: |
+          VER=${{ steps.next.outputs.next }}
+          mkdir -p dist
+          tar -czf dist/websocket-lean-${VER}-src.tgz \
+            README.md LICENSE lakefile.lean lean-toolchain VERSION WebSocket c/ws_socket.c
+          # Optionally include compiled objects (Linux)
+          tar -czf dist/websocket-lean-${VER}-linux-amd64-bin.tgz build/lib build/bin c/ws_socket.o || true
+
+      - name: Generate release notes
+        id: notes
+        uses: release-drafter/release-drafter@v6
+        with:
+          disable-autolabeler: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.next.outputs.next }}
+          name: WebSocket Lean ${{ steps.next.outputs.next }}
+          body: ${{ steps.notes.outputs.body || 'Automated release.' }}
+          files: |
+            dist/*.tgz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

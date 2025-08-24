@@ -76,10 +76,9 @@ script build_c_modules do
     let obj := targetObj
     let cmd := s!"cc -std=gnu11 -O2 -fPIC -DNDEBUG -D_GNU_SOURCE -D_DEFAULT_SOURCE -DLEAN_FFI -I{leanInc} -I{srcDir} -c {src} -o {obj}"
     IO.println s!"[C] {cmd}"
-    -- Capture stderr by redirecting; rely on shell exit status raising exception on failure if we add `set -e`.
-    let full := s!"set -euo pipefail; {cmd}"
+    -- Run compiler directly (avoid bashisms like `set -o pipefail` for dash / POSIX sh on CI).
     try
-      let _ ← IO.Process.run { cmd := "sh", args := #["-c", full] }
+      let _ ← IO.Process.run { cmd := "sh", args := #["-c", cmd] }
       pure 0
     catch e =>
       IO.eprintln s!"[error] C compilation failed: {e}"
@@ -112,9 +111,8 @@ script build_c do
     let obj := targetObj
     let cmd := s!"cc -std=gnu11 -O2 -fPIC -DNDEBUG -D_GNU_SOURCE -D_DEFAULT_SOURCE -DLEAN_FFI -I{leanInc} -I{srcDir} -c {src} -o {obj}"
     IO.println s!"[C] {cmd}"
-    let full := s!"set -euo pipefail; {cmd}"
     try
-      let _ ← IO.Process.run { cmd := "sh", args := #["-c", full] }
+      let _ ← IO.Process.run { cmd := "sh", args := #["-c", cmd] }
       pure 0
     catch e => IO.eprintln s!"[error] C compilation failed: {e}"; pure 1
 

@@ -4,7 +4,7 @@ open Lake DSL
 package «websocket» where
   srcDir := "."
   -- Library semantic version (kept in sync with VERSION file & release workflow)
-  version := v!"0.3.0"
+  version := v!"0.3.1"
 
 @[default_target] lean_lib WebSocket where
   roots := #[`WebSocket]

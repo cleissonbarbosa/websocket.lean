@@ -1,5 +1,8 @@
 # WebSocket Lean (Experimental)
 
+[![CI](https://github.com/cleissonbarbosa/websocket.lean/actions/workflows/ci.yml/badge.svg)](https://github.com/cleissonbarbosa/websocket.lean/actions/workflows/ci.yml) | ![GitHub Release](https://img.shields.io/github/v/release/cleissonbarbosa/websocket.lean)
+
+
 Experimental native Lean 4 implementation (self‑contained, pure Lean) of the WebSocket protocol (RFC 6455) core logic.
 
 ## ✨ Recent Refactor (Modularization)

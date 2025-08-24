@@ -118,6 +118,13 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add VERSION lakefile.lean
-          git commit -m "chore: bump version to ${NEXT}"
-          git tag v${NEXT}
-          git push --follow-tags
+          git commit -m "chore: bump version to ${NEXT}" || echo "No content changes"
+          # Create annotated tag (ensures proper metadata and detection)
+          if git rev-parse v${NEXT} >/dev/null 2>&1; then
+            echo "Tag v${NEXT} already exists locally"
+          else
+            git tag -a v${NEXT} -m "Release v${NEXT}"
+          fi
+          # Push commit (if any) then tag explicitly
+          git push origin HEAD:main
+          git push origin v${NEXT}

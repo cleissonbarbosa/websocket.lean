@@ -1,3 +1,9 @@
+/-
+Copyright (c) 2022 Cleisson Barbosa. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Cleisson Barbosa
+-/
+
 namespace WebSocket.HTTP
 
 /-- Errors that can arise while parsing a raw HTTP request string for the WebSocket handshake. -/

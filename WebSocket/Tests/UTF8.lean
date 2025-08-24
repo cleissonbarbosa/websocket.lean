@@ -1,3 +1,9 @@
+/-
+Copyright (c) 2022 Cleisson Barbosa. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Cleisson Barbosa
+-/
+
 import WebSocket
 open WebSocket
 

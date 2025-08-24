@@ -75,7 +75,7 @@ jobs:
           tar -czf dist/websocket-lean-${VER}-src.tgz \
             README.md LICENSE lakefile.lean lean-toolchain VERSION WebSocket c/ws_socket.c
           # Optionally include compiled objects (Linux)
-          tar -czf dist/websocket-lean-${VER}-linux-amd64-bin.tgz build/lib build/bin c/ws_socket.o || true
+          tar -czf dist/websocket-lean-${VER}-linux-amd64-bin.tgz .lake/build/bin c/ws_socket.o || true
 
       - name: Generate release notes
         id: notes

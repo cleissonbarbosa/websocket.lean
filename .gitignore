@@ -1,2 +1,18 @@
 .lake
+# Ignore compiled object files except the tracked prebuilt ones
 c/*.o
+!prebuilt/**/ws_socket.o
+
+# Lake build dirs
+.build/
+lake-packages/
+
+# Lean artifacts
+*.olean
+*.trace
+*.log
+
+# Misc
+.DS_Store
+.idea/
+.vscode/

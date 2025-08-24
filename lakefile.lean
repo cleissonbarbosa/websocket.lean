@@ -6,7 +6,7 @@ require alloy from git "https://github.com/tydeu/lean4-alloy" @ "master"
 package «websocket» where
   srcDir := "."
   -- Library semantic version (kept in sync with VERSION file & release workflow)
-  version := v!"0.1.2"
+  version := v!"0.1.3"
 
 -- Legacy placeholder (unused now that we embed C via Alloy)
 def wsLinkArgs : Array String := #[]

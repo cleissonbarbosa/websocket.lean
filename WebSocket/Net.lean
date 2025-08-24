@@ -131,10 +131,6 @@ def connectClient (host : String) (port : UInt32) (resource : String := "/") (su
     else (do closeImpl fd; pure none)
   catch _ => pure none
 
-end WebSocket.Net
-
-namespace WebSocket.Net
-
 /-- Accept a connection and perform a configurable WebSocket upgrade (subprotocols/extensions). -/
 def acceptAndUpgradeWithConfig (lh : ListenHandle) (cfg : UpgradeConfig) : IO (Option (TcpConn × Option String × List ExtensionConfig)) := do
   try
@@ -160,10 +156,6 @@ def acceptAndUpgradeWithConfig (lh : ListenHandle) (cfg : UpgradeConfig) : IO (O
             return some ({ transport, assembler := {}, pingState := {} }, selectedSubprotocol, negotiatedExtensions)
   catch _ =>
     return none
-
-end WebSocket.Net
-
-namespace WebSocket.Net
 
 /-- Incrementally read from a TcpConn, accumulate into a LoopState and process frames.
  Returns updated TcpConn plus list of events (opcode,payload).

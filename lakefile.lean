@@ -8,9 +8,6 @@ package «websocket» where
   -- Library semantic version (kept in sync with VERSION file & release workflow)
   version := v!"0.1.3"
 
--- Legacy placeholder (unused now that we embed C via Alloy)
-def wsLinkArgs : Array String := #[]
-
 -- Alloy facets for embedded C
 module_data alloy.c.o.export : FilePath
 module_data alloy.c.o.noexport : FilePath

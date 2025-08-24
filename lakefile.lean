@@ -40,12 +40,10 @@ target ws_socket.o pkg : FilePath := do
     "-std=gnu11", "-O2", "-fPIC", "-DNDEBUG", "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE", "-DLEAN_FFI",
     "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "c").toString
   ]
+  -- buildO currently uses default compiler (cc). To allow override, rely on CI providing a wrapper named 'cc' if needed.
   buildO oFile srcJob flags
 
-extern_lib libwssocket pkg := do
-  let o ← ws_socket.o.fetch
-  let name := nameToStaticLib "wssocket"
-  buildStaticLib (pkg.staticLibDir / name) #[o]
+-- (Optional) extern_lib removed to simplify cross-compilation; linking uses object directly.
 
 @[default_target] lean_lib WebSocket where
   roots := #[`WebSocket]

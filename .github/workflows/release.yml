@@ -90,12 +90,19 @@ jobs:
           sudo apt-get update
             # gcc-aarch64-linux-gnu provides aarch64-linux-gnu-gcc
           sudo apt-get install -y gcc-aarch64-linux-gnu
-      - name: Build prebuilt object
+      - name: Wrap cc for cross (arm64)
+        if: matrix.trip_os == 'linux' && matrix.trip_arch == 'arm64'
         run: |
+          sudo ln -sf /usr/bin/aarch64-linux-gnu-gcc /usr/local/bin/cc
+          cc --version
+      - name: Build (Lake) object
+        run: |
+          lake build ws_socket.o
+          OBJ=$(find .lake/build -name ws_socket.o | head -n1)
+          if [ -z "$OBJ" ]; then echo "Object not found"; exit 1; fi
+          echo "Found object: $OBJ"
           mkdir -p prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}
-          ${{ matrix.cc }} -std=gnu11 -O2 -fPIC -DNDEBUG -D_GNU_SOURCE -D_DEFAULT_SOURCE -DLEAN_FFI \
-            -I$(dirname $(which lean))/../include -c c/ws_socket.c \
-            -o prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}/ws_socket.o
+          cp "$OBJ" prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}/ws_socket.o
           ls -l prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}/
       - name: Upload object artifact
         uses: actions/upload-artifact@v4

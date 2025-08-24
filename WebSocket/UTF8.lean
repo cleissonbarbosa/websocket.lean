@@ -1,3 +1,9 @@
+/-
+Copyright (c) 2022 Cleisson Barbosa. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Cleisson Barbosa
+-/
+
 namespace WebSocket
 
 /-- Simple UTF-8 validator (no normalization). Returns true iff the byte sequence is valid UTF-8. -/

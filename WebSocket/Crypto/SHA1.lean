@@ -1,3 +1,9 @@
+/-
+Copyright (c) 2022 Cleisson Barbosa. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Cleisson Barbosa
+-/
+
 namespace WebSocket.Crypto
 
 @[inline] private def rotl (x : UInt32) (n : Nat) : UInt32 :=

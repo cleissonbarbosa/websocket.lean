@@ -9,6 +9,8 @@
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <time.h>
+#include <stdio.h>
 #include <lean/lean.h>
 
 // Helper to set non-blocking mode
@@ -163,4 +165,19 @@ lean_obj_res ws_random_bytes(size_t n) {
   close(fd);
 #endif
   return lean_io_result_mk_ok(ba);
+}
+
+// Return current UTC time in ISO8601 format with millisecond precision: YYYY-MM-DDThh:mm:ss.sssZ
+lean_obj_res ws_now_iso8601() {
+  struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+  struct tm tmv; gmtime_r(&ts.tv_sec, &tmv);
+  long ms = ts.tv_nsec / 1000000L;
+  char buf[32];
+  int n = snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
+    tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+    tmv.tm_hour, tmv.tm_min, tmv.tm_sec, ms);
+  if (n < 0) {
+    return lean_io_result_mk_error(lean_mk_string("timestamp format error"));
+  }
+  return lean_io_result_mk_ok(lean_mk_string(buf));
 }

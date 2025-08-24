@@ -31,6 +31,9 @@ lean_exe advancedEchoServer where
 lean_exe enhancedEchoServer where
   root := `Examples.EnhancedEchoServer
   moreLinkArgs := #["c/ws_socket.o"]
+lean_exe chatServer where
+  root := `Examples.Chat.ChatServer
+  moreLinkArgs := #["c/ws_socket.o"]
 lean_exe echoClient where
   root := `Examples.EchoClient
   moreLinkArgs := #["c/ws_socket.o"]

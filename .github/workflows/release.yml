@@ -3,13 +3,13 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "*"
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump (patch, minor, major, rc, beta)'
+        description: "Version bump (patch, minor, major, rc, beta)"
         required: true
-        default: 'patch'
+        default: "patch"
 
 jobs:
   tag-and-release:

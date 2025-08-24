@@ -2,9 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "lakefile.lean"
+      - "lean-toolchain"
+      - "Makefile"
+      - ".github/workflows/ci.yml"
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:

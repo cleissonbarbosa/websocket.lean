@@ -22,14 +22,8 @@ jobs:
       - name: Read current version
         id: cur
         run: |
-          if [ -f VERSION ]; then
-            CUR=$(tr -d '\n' < VERSION)
-            echo "current=$CUR" >> $GITHUB_OUTPUT
-          else
-            # get from lakefile
-            CUR=$(grep 'version := v!"' lakefile.lean | sed -E 's/version := v!"([0-9]+\.[0-9]+\.[0-9]+).*"/\1/')
-            echo "current=$CUR" >> $GITHUB_OUTPUT
-          fi
+          CUR=$(tr -d '\n' < VERSION)
+          echo "current=$CUR" >> $GITHUB_OUTPUT
       - name: Compute next version
         id: next
         run: |

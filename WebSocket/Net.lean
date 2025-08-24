@@ -1,6 +1,7 @@
 import WebSocket
 import WebSocket.Handshake
 import WebSocket.Random
+import WebSocket.Net.InlineC
 open WebSocket
 
 namespace WebSocket.Net

@@ -4,18 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump (patch, minor, major, rc, beta)"
+        description: "Version bump (patch, minor, major)"
         required: true
         default: "patch"
 
 jobs:
-  bump-tag:
-    if: github.event_name == 'workflow_dispatch'
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      next: ${{ steps.next.outputs.next }}
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
@@ -30,8 +27,8 @@ jobs:
           BUMP=${{ github.event.inputs.bump }}
           CUR=${{ steps.cur.outputs.current }}
           MAJOR=$(echo $CUR | cut -d. -f1)
-          MINOR=$(echo $CUR | cut -d. -f2)
-          PATCH=$(echo $CUR | cut -d. -f3)
+            MINOR=$(echo $CUR | cut -d. -f2)
+            PATCH=$(echo $CUR | cut -d. -f3)
           case "$BUMP" in
             major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR+1)); PATCH=0 ;;
@@ -45,7 +42,14 @@ jobs:
           NEXT=${{ steps.next.outputs.next }}
           echo "$NEXT" > VERSION
           sed -i -E "s/version := v!\"[0-9]+\.[0-9]+\.[0-9]+.*\"/version := v!\"${NEXT}\"/" lakefile.lean
-      - name: Commit and tag
+      - name: Install Lean toolchain
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain $(cat lean-toolchain)
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+      - name: Build (sanity check)
+        run: |
+          lake build
+      - name: Commit, tag & push
         run: |
           NEXT=${{ steps.next.outputs.next }}
           git config user.name "github-actions"
@@ -59,106 +63,18 @@ jobs:
           fi
           git push origin HEAD:main
           git push origin v${NEXT}
-
-  build-prebuilt:
-    needs: bump-tag
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            trip_os: linux
-            trip_arch: x86_64
-            cc: cc
-          - os: ubuntu-latest
-            trip_os: linux
-            trip_arch: arm64
-            cc: aarch64-linux-gnu-gcc
-          - os: macos-14
-            trip_os: macos
-            trip_arch: arm64
-            cc: cc
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install Lean toolchain
+      - name: Pack source tarball
         run: |
-          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain $(cat lean-toolchain)
-          echo "$HOME/.elan/bin" >> $GITHUB_PATH
-      - name: Install ARM64 cross compiler
-        if: matrix.trip_os == 'linux' && matrix.trip_arch == 'arm64'
-        run: |
-          sudo apt-get update
-            # gcc-aarch64-linux-gnu provides aarch64-linux-gnu-gcc
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-      - name: Wrap cc for cross (arm64)
-        if: matrix.trip_os == 'linux' && matrix.trip_arch == 'arm64'
-        run: |
-          sudo ln -sf /usr/bin/aarch64-linux-gnu-gcc /usr/local/bin/cc
-          cc --version
-      - name: Build (Lake) object
-        run: |
-          lake build ws_socket.o
-          OBJ=$(find .lake/build -name ws_socket.o | head -n1)
-          if [ -z "$OBJ" ]; then echo "Object not found"; exit 1; fi
-          echo "Found object: $OBJ"
-          mkdir -p prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}
-          cp "$OBJ" prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}/ws_socket.o
-          ls -l prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}/
-      - name: Upload object artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ws_socket-${{ matrix.trip_os }}-${{ matrix.trip_arch }}.o
-          path: prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}/ws_socket.o
-
-  assemble-release:
-    needs: [bump-tag, build-prebuilt]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Download prebuilt artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: prebuilt-artifacts
-      - name: Organize prebuilt layout
-        run: |
-          ls -R prebuilt-artifacts
-          mkdir -p prebuilt
-          for f in prebuilt-artifacts/*/*.o; do
-            base=$(basename "$f")
-            # artifact names: ws_socket-<os>-<arch>.o/ ws_socket.o inside? adjust
-            if [[ $f == *"ws_socket-linux-x86_64.o/ws_socket.o" ]]; then
-              mkdir -p prebuilt/linux-x86_64; cp "$f" prebuilt/linux-x86_64/ws_socket.o
-            elif [[ $f == *"ws_socket-linux-arm64.o/ws_socket.o" ]]; then
-              mkdir -p prebuilt/linux-arm64; cp "$f" prebuilt/linux-arm64/ws_socket.o
-            elif [[ $f == *"ws_socket-macos-arm64.o/ws_socket.o" ]]; then
-              mkdir -p prebuilt/macos-arm64; cp "$f" prebuilt/macos-arm64/ws_socket.o
-            fi
-          done
-      - name: Pack source + prebuilt tarball
-        run: |
-          VER=${{ needs.bump-tag.outputs.next }}
+          VER=${{ steps.next.outputs.next }}
           mkdir -p dist
           tar -czf dist/websocket-lean-${VER}-src.tgz \
-            README.md LICENSE lakefile.lean lean-toolchain VERSION WebSocket c/ws_socket.c prebuilt
-      - name: Generate release notes
-        id: notes
-        uses: release-drafter/release-drafter@v6
-        with:
-          disable-autolabeler: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            README.md LICENSE lakefile.lean lean-toolchain WebSocket
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.bump-tag.outputs.next }}
-          name: WebSocket Lean ${{ needs.bump-tag.outputs.next }}
-          body: ${{ steps.notes.outputs.body || 'Automated release.' }}
-          files: |
-            dist/*.tgz
-            prebuilt-artifacts/*/ws_socket.o
+          tag_name: v${{ steps.next.outputs.next }}
+          name: WebSocket Lean ${{ steps.next.outputs.next }}
+          files: dist/*.tgz
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

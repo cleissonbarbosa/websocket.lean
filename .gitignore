@@ -1,7 +1,10 @@
 .lake
-# Ignore compiled object files except the tracked prebuilt ones
+# Ignore compiled object files (never commit generated .o)
 c/*.o
-!prebuilt/**/ws_socket.o
+
+# Ignore any generated prebuilt artifacts; keep directory skeleton only
+prebuilt/
+!prebuilt/.gitkeep
 
 # Lake build dirs
 .build/

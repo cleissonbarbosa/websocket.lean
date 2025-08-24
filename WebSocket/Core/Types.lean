@@ -31,7 +31,7 @@ structure FrameHeader where
   opcode : OpCode
   masked : Bool
   payloadLen : Nat
-  deriving Repr
+  deriving Repr, DecidableEq
 
 /-- Masking key (client-to-server). -/
 structure MaskingKey where
@@ -79,6 +79,17 @@ instance [Repr α] : Repr (Option α) where
 
 instance : Repr Frame where
   reprPrec f _ := s!"Frame(opc={f.header.opcode}, len={f.payload.size}, masked={f.header.masked})"
+
+-- Provide BEq instances needed by tests comparing ByteArrays and Frames.
+instance : BEq ByteArray where
+  beq a b := a.data == b.data
+
+instance : BEq FrameHeader where
+  beq a b := a.fin == b.fin && a.rsv1 == b.rsv1 && a.rsv2 == b.rsv2 &&
+    a.rsv3 == b.rsv3 && a.opcode == b.opcode && a.masked == b.masked && a.payloadLen == b.payloadLen
+
+instance : BEq Frame where
+  beq a b := a.header == b.header && a.maskingKey? == b.maskingKey? && a.payload.data == b.payload.data
 
 /-- Internal sanity list to ensure constructors are recognized by compiler (can be removed later). -/
 def _protocolViolationConstructors : List ProtocolViolation := [

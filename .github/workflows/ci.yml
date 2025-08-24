@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Cache lake build & deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.elan
+            .lake
+            build
+          key: ${{ runner.os }}-elan-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}
+          restore-keys: ${{ runner.os }}-elan-
+
+      - name: Install Lean toolchain
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain $(cat lean-toolchain)
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Lake build (C object) end Build library & examples
+        run: |
+          make all
+
+      - name: Run tests
+        run: |
+          lake exe tests

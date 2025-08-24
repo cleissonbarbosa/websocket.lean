@@ -84,6 +84,12 @@ jobs:
         run: |
           curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain $(cat lean-toolchain)
           echo "$HOME/.elan/bin" >> $GITHUB_PATH
+      - name: Install ARM64 cross compiler
+        if: matrix.trip_os == 'linux' && matrix.trip_arch == 'arm64'
+        run: |
+          sudo apt-get update
+            # gcc-aarch64-linux-gnu provides aarch64-linux-gnu-gcc
+          sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build prebuilt object
         run: |
           mkdir -p prebuilt/${{ matrix.trip_os }}-${{ matrix.trip_arch }}

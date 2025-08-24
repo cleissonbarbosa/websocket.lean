@@ -4,7 +4,7 @@ open Lake DSL System
 package «websocket» where
   srcDir := "."
   -- Library semantic version (kept in sync with VERSION file & release workflow)
-  version := v!"0.3.5"
+  version := v!"0.1.0"
 
 def detectHost : IO (String × String) := do
   let osRaw ← IO.Process.run {cmd := "uname", args := #["-s"]}

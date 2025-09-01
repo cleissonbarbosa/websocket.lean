@@ -38,6 +38,38 @@ def testUpgradeRaw : IO Unit := do
       | none => throw <| IO.userError "upgradeRaw missing accept"
   | none => throw <| IO.userError "upgradeRaw failed"
 
+def testUpgradeWithConfig : IO Unit := do
+  let req : HandshakeRequest := {
+    method := "GET", resource := "/", headers := [
+      ("Host","ex"),("Upgrade","websocket"),("Connection","Upgrade"),("Sec-WebSocket-Key","dGhlIHNhbXBsZSBub25jZQ=="),
+      ("Sec-WebSocket-Protocol","chat, superchat"),
+      ("Sec-WebSocket-Extensions","permessage-deflate; client_max_window_bits; server_max_window_bits=10, x-foo; a=1; b")
+    ] }
+  let cfg : UpgradeConfig := {
+    subprotocols := { supported := ["superchat"], rejectOnNoMatch := true },
+    extensions := { supportedExtensions := [{ name := "permessage-deflate" }] }
+  }
+  match upgradeWithFullConfig req cfg with
+  | .ok resp =>
+    let sp? := resp.headers.findSome? (fun (k,v) => if k = "Sec-WebSocket-Protocol" then some v else none)
+    if sp? ≠ some "superchat" then throw <| IO.userError "Subprotocol not selected as expected"
+    let exts? := resp.headers.findSome? (fun (k,v) => if k = "Sec-WebSocket-Extensions" then some v else none)
+    match exts? with
+    | some v => if (v.splitOn "permessage-deflate").length ≤ 1 then throw <| IO.userError "Extension not negotiated" else pure ()
+    | none => throw <| IO.userError "Missing extensions header"
+  | .error e => throw <| IO.userError s!"upgradeWithFullConfig failed: {e}"
+
+def testUpgradeWithConfigReject : IO Unit := do
+  let req : HandshakeRequest := {
+    method := "GET", resource := "/", headers := [
+      ("Host","ex"),("Upgrade","websocket"),("Connection","Upgrade"),("Sec-WebSocket-Key","dGhlIHNhbXBsZSBub25jZQ=="),
+      ("Sec-WebSocket-Protocol","client-only")
+    ] }
+  let cfg : UpgradeConfig := { subprotocols := { supported := ["server-only"], rejectOnNoMatch := true } }
+  match upgradeWithFullConfig req cfg with
+  | .ok _ => throw <| IO.userError "Expected subprotocolRejected"
+  | .error _ => IO.println "upgradeWithFullConfig reject test passed"
+
 def testSubprotocolNegotiation : IO Unit := do
   let req : HandshakeRequest := {
     method := "GET", resource := "/", headers := [
@@ -64,5 +96,6 @@ def testUpgradeErrors : IO Unit := do
 
 def run : IO Unit := do
   testHandshake; testUpgradeRaw; testSubprotocolNegotiation; testUpgradeErrors
+  testUpgradeWithConfig; testUpgradeWithConfigReject
 
 end WebSocket.Tests.Handshake

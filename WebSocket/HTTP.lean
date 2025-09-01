@@ -22,7 +22,7 @@ structure RequestLine where
   deriving Repr, DecidableEq
 
 /-- Very small, line‑based parser (no folding, no obs-fold). Expects CRLF line endings. -/
-partial def splitCRLF (s : String) : List String :=
+def splitCRLF (s : String) : List String :=
   if s.isEmpty then [] else s.splitOn "\r\n"
 
 private def parseRequestLine (line : String) : Except ParseError RequestLine :=
@@ -34,8 +34,11 @@ private def parseRequestLine (line : String) : Except ParseError RequestLine :=
 private def parseHeader (line : String) : Except ParseError (String × String) :=
   match line.splitOn ":" with
   | k :: rest =>
-      let value := (String.intercalate ":" rest).trim
-      .ok (k.trim, value)
+      if rest.isEmpty then
+        .error (.malformedHeader line)
+      else
+        let value := (String.intercalate ":" rest).trim
+        .ok (k.trim, value)
   | _ => .error (.malformedHeader line)
 
 /-- Parse a raw HTTP request into (RequestLine, headers). Stops at first empty line. -/

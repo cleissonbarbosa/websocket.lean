@@ -39,6 +39,17 @@ inductive HandshakeError
   | subprotocolRejected
   deriving Repr, DecidableEq
 
+instance : ToString HandshakeError where
+  toString
+    | .badMethod => "badMethod"
+    | .missingHost => "missingHost"
+    | .missingUpgrade => "missingUpgrade"
+    | .notWebSocket => "notWebSocket"
+    | .missingConnection => "missingConnection"
+    | .connectionNotUpgrade => "connectionNotUpgrade"
+    | .missingKey => "missingKey"
+    | .subprotocolRejected => "subprotocolRejected"
+
 /-- Utility: lowercase a string -/
 def lower (s : String) : String := s.map (·.toLower)
 

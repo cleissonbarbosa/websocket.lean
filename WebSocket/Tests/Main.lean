@@ -14,6 +14,8 @@ import WebSocket.Tests.UTF8
 import WebSocket.Tests.InvalidOpcode
 import WebSocket.Tests.Integration
 import WebSocket.Tests.FFI
+import WebSocket.Tests.Extensions
+import WebSocket.Tests.HTTP
 
 def main : IO Unit := do
   WebSocket.Tests.Basic.run
@@ -25,5 +27,7 @@ def main : IO Unit := do
   WebSocket.Tests.UTF8.run
   WebSocket.Tests.InvalidOpcode.run
   WebSocket.Tests.Integration.run
+  WebSocket.Tests.Extensions.run
   WebSocket.Tests.FFI.run
+  WebSocket.Tests.HTTP.run
   IO.println "All tests done"

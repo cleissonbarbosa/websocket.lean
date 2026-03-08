@@ -8,23 +8,21 @@ import Lake
 open Lake DSL System
 
 /-!
-Environment‑driven TLS (OpenSSL) build support.
+Manual TLS (OpenSSL) build support.
 
-Usage:
-  WEBSOCKET_TLS=1 lake build          -- enable TLS (tries system OpenSSL first)
-  WEBSOCKET_TLS=1 WEBSOCKET_OPENSSL_LOCAL=vendor/openssl lake build
-                                       -- enable TLS using locally built OpenSSL
+TLS is disabled by default. To enable it, edit this file and set:
 
-If TLS is disabled (default), stub C functions are compiled (see
-`WebSocket/Net/TLSInlineC.lean`) so the rest of the code works unchanged.
+- `enableTLS := true`
+- `localOpenSSL? := some "vendor/openssl"` if you want to link against a local build
 
-You can build a local OpenSSL via `scripts/build_openssl.sh` which installs into
-`vendor/openssl` by default (override with OPENSSL_PREFIX). Then re-run build
-with WEBSOCKET_OPENSSL_LOCAL pointing at that prefix.
+If TLS is disabled, stub C functions are compiled instead (see
+`WebSocket/Net/TLSInlineC.lean`) so the rest of the code continues to build.
 
-IMPORTANT: For production use, TLS should be enabled or a TLS-terminating
-reverse proxy should be used. Running WebSocket servers without encryption
-is NOT recommended for production environments.
+You can build a local OpenSSL via `scripts/build_openssl.sh`, which installs into
+`vendor/openssl` by default unless `OPENSSL_PREFIX` is overridden.
+
+For production use, prefer validated TLS enablement or a TLS-terminating reverse
+proxy instead of running unencrypted WebSocket traffic directly.
 -/
 -- NOTE: Lake configuration runs in a pure context; to avoid fragile unsafe IO here
 -- we keep a simple manual toggle. Set to true to attempt TLS (OpenSSL) linkage.

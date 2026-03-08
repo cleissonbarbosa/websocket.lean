@@ -60,7 +60,8 @@ def processAllConnections (server : AsyncServerState) (handler : EventHandler) :
   let mut activeTasks : List ConnectionTask := []
 
   for task in server.tasks do
-    if task.active then
+    let stillPresent := currentServer.base.connections.any (·.id = task.connId)
+    if task.active && stillPresent then
       let (newServer, events) ← processConnectionAsync currentServer task.connId
       currentServer := newServer
 
@@ -68,11 +69,12 @@ def processAllConnections (server : AsyncServerState) (handler : EventHandler) :
       for event in events do
         handler event
 
-      -- Update task activity
-      let timestamp ← IO.monoNanosNow
-      let updatedTask := { task with lastActivity := UInt64.ofNat timestamp }
-      activeTasks := updatedTask :: activeTasks
-    else
+      -- Keep only tasks whose connection still exists after processing.
+      if currentServer.base.connections.any (·.id = task.connId) then
+        let timestamp ← IO.monoNanosNow
+        let updatedTask := { task with lastActivity := UInt64.ofNat timestamp }
+        activeTasks := updatedTask :: activeTasks
+    else if stillPresent then
       activeTasks := task :: activeTasks
 
   return { currentServer with tasks := activeTasks }

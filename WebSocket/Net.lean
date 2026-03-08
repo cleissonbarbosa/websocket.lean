@@ -22,6 +22,9 @@ opaque listenImpl (port : UInt32) : IO UInt32
 @[extern "ws_accept"]
 opaque acceptImpl (listenFd : UInt32) : IO UInt32
 
+@[extern "ws_accept_try"]
+opaque tryAcceptImpl (listenFd : UInt32) : IO UInt32
+
 @[extern "ws_peer_addr"]
 opaque peerAddrImpl (fd : UInt32) : IO String
 
@@ -41,6 +44,7 @@ opaque setNonblockingImpl (fd : UInt32) : IO Unit
 opaque connectImpl (host : @& String) (port : UInt32) : IO UInt32
 
 -- TLS FFI
+@[extern "ws_tls_available"] opaque tlsAvailableImpl : IO Bool
 @[extern "ws_tls_init_ctx"] opaque tlsInitCtxImpl (certFile : @& String) (keyFile : @& String) : IO UInt64
 @[extern "ws_tls_accept"] opaque tlsAcceptImpl (ctxPtr : UInt64) (fd : UInt32) : IO UInt64
 @[extern "ws_tls_read"] opaque tlsReadImpl (sslPtr : UInt64) (maxBytes : UInt32) : IO ByteArray
@@ -50,6 +54,8 @@ opaque connectImpl (host : @& String) (port : UInt32) : IO UInt32
 structure AcceptedClient where
   fd : UInt32
   addr : String
+
+private def noPendingClientFd : UInt32 := UInt32.ofNat 4294967295
 
 /-- Stream abstraction (plain TCP or TLS) used during HTTP upgrade and transport layer. -/
 structure Stream where
@@ -218,6 +224,15 @@ def acceptClient (lh : ListenHandle) : IO AcceptedClient := do
   let clientAddr ← (try peerAddrImpl clientFd catch _ => pure "unknown")
   pure { fd := clientFd, addr := clientAddr }
 
+/-- Try to accept a client on a non-blocking listener. Returns `none` when no client is pending. -/
+def tryAcceptClient (lh : ListenHandle) : IO (Option AcceptedClient) := do
+  let clientFd ← tryAcceptImpl lh.fd
+  if clientFd = noPendingClientFd then
+    return none
+  (try setNonblockingImpl clientFd catch _ => pure ())
+  let clientAddr ← (try peerAddrImpl clientFd catch _ => pure "unknown")
+  return some { fd := clientFd, addr := clientAddr }
+
 /-/ Accept connection and perform WebSocket handshake -/
 def acceptAndUpgrade (lh : ListenHandle) : IO (Option TcpConn) :=
   try
@@ -296,8 +311,11 @@ def acceptAndUpgradeClientWithConfig (clientFd : UInt32) (cfg : UpgradeConfig)
 /-- Accept a connection and perform a configurable WebSocket upgrade (subprotocols/extensions). -/
 def acceptAndUpgradeWithConfig (lh : ListenHandle) (cfg : UpgradeConfig) (tlsCtx? : Option UInt64 := none) : IO (Option (TcpConn × Option String × List ExtensionConfig)) := do
   try
-    let client ← acceptClient lh
-    acceptAndUpgradeClientWithConfig client.fd cfg tlsCtx?
+    match ← tryAcceptClient lh with
+    | some client =>
+        acceptAndUpgradeClientWithConfig client.fd cfg tlsCtx?
+    | none =>
+        return none
   catch _ =>
     return none
 

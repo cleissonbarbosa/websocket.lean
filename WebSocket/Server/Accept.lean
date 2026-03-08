@@ -43,7 +43,9 @@ def acceptConnection (server : ServerState) : IO (ServerState × Option ServerEv
   | none => return (server, some (.error 0 "Server not listening"))
   | some lh =>
     try
-      let client ← WebSocket.Net.acceptClient lh
+      let client? ← WebSocket.Net.tryAcceptClient lh
+      let some client := client?
+        | return (server, none)
 
       if server.connections.length >= server.config.maxConnections then
         WebSocket.log .warn s!"Connection limit reached ({server.config.maxConnections}); rejecting {client.addr}"

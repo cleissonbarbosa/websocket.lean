@@ -73,8 +73,8 @@ def processMessages (client : ClientState) : IO (ClientState × List ClientEvent
       let t := tcpConn.transport.toTransport
       let bytes ← t.recv
       if bytes.size = 0 then
-        let newClient := { client with conn := none, connected := false }
-        return (newClient, [.disconnected none "Connection closed"])
+        -- Non-blocking socket returned EAGAIN: no data available yet
+        return (client, [])
       else
         let abstractConn : Conn := (tcpConn : Conn)
         let (newTcpConn, events, _) ← WebSocket.Net.stepTcp tcpConn (some { conn := abstractConn, buffer := tcpConn.buffer })

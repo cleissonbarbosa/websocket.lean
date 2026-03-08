@@ -51,7 +51,22 @@ def testUnexpectedContinuation : IO Unit := do
   | .violation .unexpectedContinuation => IO.println "Unexpected continuation test passed"
   | _ => throw <| IO.userError "Expected unexpectedContinuation"
 
+def testTooManyFragments : IO Unit := do
+  let st0 : WebSocket.AssemblerState := { maxFragments? := some 2 }
+  let f1 : Frame := { header := { opcode := .text, masked := false, payloadLen := 1, fin := false }, payload := ByteArray.mk #[UInt8.ofNat 65] }
+  let f2 : Frame := { header := { opcode := .continuation, masked := false, payloadLen := 1, fin := false }, payload := ByteArray.mk #[UInt8.ofNat 66] }
+  let f3 : Frame := { header := { opcode := .continuation, masked := false, payloadLen := 1, fin := true }, payload := ByteArray.mk #[UInt8.ofNat 67] }
+  let st1 ← match WebSocket.processFrame st0 f1 with
+    | .continue st' => pure st'
+    | _ => throw <| IO.userError "Expected first fragment to start buffering"
+  let st2 ← match WebSocket.processFrame st1 f2 with
+    | .continue st' => pure st'
+    | _ => throw <| IO.userError "Expected second fragment to continue buffering"
+  match WebSocket.processFrame st2 f3 with
+  | .violation .tooManyFragments => IO.println "Too many fragments test passed"
+  | _ => throw <| IO.userError "Expected tooManyFragments"
+
 def run : IO Unit := do
-  testFragmentation; testOversizedMessage; testFragmentSequenceError; testUnexpectedContinuation
+  testFragmentation; testOversizedMessage; testFragmentSequenceError; testUnexpectedContinuation; testTooManyFragments
 
 end WebSocket.Tests.Fragmentation

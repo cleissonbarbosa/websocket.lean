@@ -13,7 +13,8 @@ def testHandshake : IO Unit := do
   let req : HandshakeRequest := {
     method := "GET", resource := "/chat",
     headers := [
-      ("Host","example.com"), ("Upgrade","websocket"), ("Connection","Upgrade"), ("Sec-WebSocket-Key","dGhlIHNhbXBsZSBub25jZQ==")
+      ("Host","example.com"), ("Upgrade","websocket"), ("Connection","Upgrade"),
+      ("Sec-WebSocket-Key","dGhlIHNhbXBsZSBub25jZQ=="), ("Sec-WebSocket-Version","13")
     ] }
   match upgrade req with
   | some resp =>
@@ -28,7 +29,7 @@ def testHandshake : IO Unit := do
   | none => throw <| IO.userError "Handshake failed"
 
 def testUpgradeRaw : IO Unit := do
-  let raw := "GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+  let raw := "GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
   match WebSocket.upgradeRaw raw with
   | some resp =>
       let expected := "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
@@ -42,7 +43,7 @@ def testSubprotocolNegotiation : IO Unit := do
   let req : HandshakeRequest := {
     method := "GET", resource := "/", headers := [
       ("Host","ex"),("Upgrade","websocket"),("Connection","Upgrade"),("Sec-WebSocket-Key","dGhlIHNhbXBsZSBub25jZQ=="),
-      ("Sec-WebSocket-Protocol","chat, superchat")
+      ("Sec-WebSocket-Version","13"), ("Sec-WebSocket-Protocol","chat, superchat")
     ] }
   match WebSocket.upgrade req with
   | some resp =>

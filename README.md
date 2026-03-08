@@ -1,10 +1,13 @@
 # WebSocket Lean
 
-[![CI](https://github.com/cleissonbarbosa/websocket.lean/actions/workflows/ci.yml/badge.svg)](https://github.com/cleissonbarbosa/websocket.lean/actions/workflows/ci.yml) | ![GitHub Release](https://img.shields.io/github/v/release/cleissonbarbosa/websocket.lean) | ![Status](https://img.shields.io/badge/status-experimental-orange)
+[![CI](https://github.com/cleissonbarbosa/websocket.lean/actions/workflows/ci.yml/badge.svg)](https://github.com/cleissonbarbosa/websocket.lean/actions/workflows/ci.yml) | ![GitHub Release](https://img.shields.io/github/v/release/cleissonbarbosa/websocket.lean) | ![Status](https://img.shields.io/badge/status-beta-yellow)
 
-Experimental (not production‑ready) Lean 4 native implementation of the WebSocket protocol (RFC 6455). Includes: frame encoding/decoding & validation, fragmented message assembly, HTTP handshake with subprotocol & extension negotiation, keep‑alive (ping/pong) state, close frame construction & mapping from violations, and an incremental event‑oriented loop.
+**Beta** Lean 4 native implementation of the WebSocket protocol (RFC 6455). Includes: frame encoding/decoding & validation, fragmented message assembly, HTTP handshake with security validation, keep‑alive (ping/pong) state, close frame construction & mapping from violations, backpressure mechanisms, rate limiting, graceful shutdown, and monitoring.
 
-Primary goals: clarity, auditability and a path toward partial formal verification — not raw performance (yet).
+Primary goals: security, reliability, observability, and eventual production readiness with formal verification foundations.
+
+> [!INFO]
+> This library is currently in **beta** status.
 
 ## ✨ Recent Modularization
 
@@ -41,44 +44,105 @@ def runDemo : IO Unit := do
 
 ## Project Status
 
-> [!WARNING]
-> Do not use in production. Still missing: TLS/WSS, robust backpressure, real extension semantics (permessage‑deflate is only a stub), full formal proofs, and performance passes.
+> [!NOTE]
+> Beta release with core WebSocket functionality implemented. Recommended for development and testing. For production use, deploy behind a TLS-terminating reverse proxy and thoroughly test your specific use case.
 
 Implemented today:
 
-- Full framing (7/16/64‑bit lengths, masking, violation detection, control frame validation).
-- Fragmented message assembly with invalid sequence detection and configurable max size (`oversizedMessage`).
-- HTTP handshake with configurable `UpgradeConfig` (subprotocol selection + preliminary extension negotiation: parse only, no compression yet).
-- Close frame construction/parsing and violation→close code mapping.
-- Keep‑alive infrastructure (ping scheduler + pong tracking) ready; integrated into async examples.
-- Incremental loop (buffer + progressive decode) with auto‑pong for received pings.
-- Experimental TCP client (`WebSocket.Net.connectClient`) validating `Sec-WebSocket-Accept`.
-- Pure Lean SHA‑1 & Base64 (clarity over speed) used during handshake.
+- ✅ **Full framing** (7/16/64‑bit lengths, masking, violation detection, control frame validation).
+- ✅ **Fragmented message assembly** with invalid sequence detection and configurable max size.
+- ✅ **Hardened HTTP handshake** with security validation (CRLF injection prevention, version enforcement, header validation).
+- ✅ **Close frame construction/parsing** and violation→close code mapping.
+- ✅ **Keep‑alive infrastructure** (ping scheduler + pong tracking) integrated into async examples.
+- ✅ **Incremental loop** (buffer + progressive decode) with auto‑pong for received pings.
+- ✅ **Backpressure mechanisms** with configurable high/low watermarks and send queue management.
+- ✅ **Rate limiting** for handshake attempts with configurable windows and block durations.
+- ✅ **Graceful shutdown** with connection draining and timeout handling.
+- ✅ **Comprehensive metrics** (connections, frames, violations, backpressure events).
+- ✅ **TCP client** (`WebSocket.Net.connectClient`) validating `Sec-WebSocket-Accept`.
+- ✅ **Pure Lean SHA‑1 & Base64** (clarity over speed) used during handshake.
 
-Key limitations:
+Implemented hardening:
 
-- No TLS (`wss://`).
-- No effective extension semantics (RSV bits only sanity‑checked).
-- No formal proofs yet for frame roundtrip / size safety (targets listed below).
-- Minimal networking shim: no epoll, no advanced multiplexing/backpressure.
-- No adaptive memory limits or deep fragmentation attack mitigation beyond basic checks.
+- 🔒 **Security hardening** (handshake validation, injection prevention, header sanitization)
+- 📊 **Observability** (structured logging, metrics collection, monitoring integration)
+- ⚡ **Performance controls** (backpressure, rate limiting, resource limits)
+- 🔄 **Reliability** (graceful shutdown, connection draining, error recovery)
+- 📈 **Scalability** (configurable limits, efficient resource usage)
 
-## ✅ / 🔜 Condensed Roadmap
+Remaining for future enhancement:
 
-Current status vs planned items:
+- TLS/WSS native support (currently deploy behind TLS reverse proxy)
+- Extension semantics beyond RSV validation
+- Formal verification proofs for critical properties
+- Advanced networking features (epoll integration)
 
-- ✅ Incremental loop with buffering + auto‑pong (`stepIO` / `runLoop`).
-- ✅ Configurable handshake (subprotocol + parsed extensions) via `UpgradeConfig`.
-- ✅ Initial client (`connectClient`).
-- ✅ Server events + subscription system (`WebSocket.Server.Events`).
-- ✅ Keepalive infra / ping-pong state (base integration; timeout policies may evolve).
-- ✅ Close frames: build/parse + violation mapping.
-- 🔜 TLS (external bindings / wrapper).
-- 🔜 Extension semantics (real permessage‑deflate + contextual RSV enforcement).
-- 🔜 Formal properties: masking involution, frame roundtrip, length bounds & overflow freedom.
-- 🔜 Fuzz/property harness (random fragmentation, masking patterns, large sizes).
-- 🔜 Performance: zero‑copy slices, reusable buffers, optimized SHA‑1 / Base64.
-- 🔜 Server lifecycle: full graceful shutdown (drain + broadcast) & backpressure strategy.
+## ✅ Features Implemented
+
+Core WebSocket functionality has been completed:
+
+- ✅ **Incremental loop** with buffering + auto‑pong (`stepIO` / `runLoop`).
+- ✅ **Hardened handshake** with security validation, CRLF injection prevention, version enforcement.
+- ✅ **Configurable handshake** (subprotocol + parsed extensions) via `UpgradeConfig`.
+- ✅ **Backpressure system** with configurable high/low watermarks and send queue management.
+- ✅ **Rate limiting** for handshake attempts with configurable windows and block durations.
+- ✅ **Graceful shutdown** with connection draining, timeout handling, and resource cleanup.
+- ✅ **Comprehensive metrics** (connections, frames, violations, backpressure events).
+- ✅ **TCP client** (`connectClient`) with handshake validation.
+- ✅ **Server events** + subscription system (`WebSocket.Server.Events`).
+- ✅ **Keepalive infrastructure** / ping-pong state with timeout policies.
+- ✅ **Close frames**: build/parse + violation mapping with proper error responses.
+- ✅ **Security hardening**: header validation, injection prevention, resource limits.
+- ✅ **Observability**: structured logging, metrics collection, monitoring integration.
+
+## 🚀 Production Readiness
+
+This WebSocket implementation has the following status:
+
+### ✅ Implemented
+- **Core Protocol**: Full RFC 6455 compliance for basic operations
+- **Security**: Handshake validation, injection prevention, rate limiting
+- **Reliability**: Backpressure, graceful shutdown, connection draining
+- **Observability**: Basic metrics, structured logging
+
+### ⚠️ Limitations
+- **No Native TLS**: Requires reverse proxy for WSS support
+- **Limited Testing**: Needs more stress and integration testing
+- **Performance**: Not optimized for high-throughput scenarios
+- **Formal Verification**: Proofs not yet completed
+
+### Recommended Setup for Testing/Development
+
+```bash
+# Deploy behind TLS reverse proxy (nginx/haproxy)
+# Configure appropriate limits based on your use case:
+
+let serverConfig : ServerConfig := {
+  port := 8080,
+  maxConnections := 10000,
+  rateLimit := {
+    maxRequests := 100,     -- per time window
+    timeWindowSeconds := 60,
+    blockDurationSeconds := 300,
+    enabled := true
+  },
+  handshakeTimeout := 10,
+	idleTimeout := 300,
+	maxMessageSize := 10 * 1024 * 1024,
+	maxFragmentsPerMessage := 128,
+	maxFrameSize := 1024 * 1024
+}
+```
+
+Native TLS remains opt-in and is disabled by default in the current build configuration. For production, prefer TLS termination in a reverse proxy unless you are explicitly validating the OpenSSL path in your environment.
+
+### Required for Production
+
+- 🔜 TLS/WSS native support (deploy behind TLS reverse proxy for now)
+- 🔜 Extension semantics beyond RSV validation
+- 🔜 Formal verification proofs for critical security properties
+- 🔜 Advanced networking features (epoll integration)
+- 🔜 Performance optimizations (zero-copy, SIMD operations)
 
 ## 🧩 Planned Formal Verification Tasks
 
@@ -224,4 +288,12 @@ External minimal project using this library with a simple front-end: https://git
 
 ---
 
-Feedback, issues and PRs welcome. Medium‑term aim: layer in formal verification of core safety & correctness properties.
+Feedback, issues and PRs welcome. Long-term aim: achieve production readiness with formal verification of core safety & correctness properties.
+
+## Known Issues
+
+See [AUDIT_REPORT.md](AUDIT_REPORT.md) for a detailed security and reliability audit.
+
+## Disclaimer
+
+This library is provided as-is for educational and development purposes. Use in production environments is at your own risk. The maintainers recommend thorough testing and security review before any production deployment.

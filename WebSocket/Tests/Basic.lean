@@ -44,7 +44,5 @@ def run : IO Unit := do
     if violationCloseCode v ≠ cc then
       panic! s!"Mapping mismatch for {v}: expected code {(CloseCode.toNat cc)}, got {(CloseCode.toNat (violationCloseCode v))}"
   IO.println "Violation→CloseCode mapping test passed"
-  -- (Placeholder) Networking smoke: ensure TcpTransport .toTransport compiles & step function linkable.
-  -- Full integration tests would require spawning a socket; omitted here for determinism.
 
 end WebSocket.Tests.Basic

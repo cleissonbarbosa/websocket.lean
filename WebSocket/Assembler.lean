@@ -16,15 +16,18 @@ structure AssemblerState where
   buffering : Bool := false
   opcodeFirst? : Option OpCode := none
   acc : ByteArray := ByteArray.empty
+  fragmentCount : Nat := 0
   /-- Optional maximum total message size (payload bytes across a fragmented sequence or single frame). -/
   maxMessageSize? : Option Nat := none
+  /-- Optional maximum number of fragments allowed in a single message. -/
+  maxFragments? : Option Nat := none
   deriving Repr
 
 instance : Inhabited AssemblerState := ⟨{}⟩
 
-/-- Helper smart constructor allowing an optional max message size constraint. -/
-def mkAssemblerState (maxMessageSize? : Option Nat := none) : AssemblerState :=
-  { maxMessageSize? }
+/-- Helper smart constructor allowing optional max message size and fragment count constraints. -/
+def mkAssemblerState (maxMessageSize? : Option Nat := none) (maxFragments? : Option Nat := none) : AssemblerState :=
+  { maxMessageSize?, maxFragments? }
 
 /-- Output from frame processing -/
 inductive AssemblerOutput
@@ -51,6 +54,7 @@ We treat fragmentation sequence structural mistakes as protocol errors.
 def violationCloseCode : ProtocolViolation → CloseCode
   | .textInvalidUTF8      => .invalidPayload   -- 1007
   | .oversizedMessage     => .messageTooBig    -- 1009
+  | .tooManyFragments     => .policyViolation  -- 1008
   | .controlFragmented
   | .controlTooLong
   | .unexpectedContinuation
@@ -65,69 +69,42 @@ def closeFrameForViolation (v : ProtocolViolation) : Frame :=
 
 /-- Process a frame through the assembler -/
 def processFrame (st : AssemblerState) (f : Frame) : AssemblerOutput :=
+  let nextFragmentCount := if f.header.opcode = .continuation then st.fragmentCount + 1 else 1
+  let fragmentLimitExceeded :=
+    match st.maxFragments? with
+    | some lim => decide (nextFragmentCount > lim)
+    | none => false
+  let sizeExceeded (sz : Nat) :=
+    match st.maxMessageSize? with
+    | some lim => decide (sz > lim)
+    | none => false
+  let resetState : AssemblerState :=
+    { buffering := false, opcodeFirst? := none, acc := ByteArray.empty,
+      fragmentCount := 0, maxMessageSize? := st.maxMessageSize?, maxFragments? := st.maxFragments? }
+  let finishMessage (opcode : OpCode) (data : ByteArray) : AssemblerOutput :=
+    if opcode = .text && !validateUTF8 data then .violation .textInvalidUTF8
+    else .message opcode data resetState
   match validateFrame f with
   | some v => .violation v
   | none =>
     match f.header.opcode with
     | .continuation =>
-        if st.buffering then
+        if !st.buffering then .violation .unexpectedContinuation
+        else if fragmentLimitExceeded then .violation .tooManyFragments
+        else
           let newAcc := st.acc ++ f.payload
-          -- size limit check (fragmented accumulation)
-          match st.maxMessageSize? with
-          | some lim =>
-              if newAcc.size > lim then
-                .violation .oversizedMessage
-              else if f.header.fin then
-                let finalData := newAcc
-                if st.opcodeFirst? = some .text then
-                  if validateUTF8 finalData then
-                    .message (st.opcodeFirst?.getD .text) finalData { buffering := false, opcodeFirst? := none, acc := ByteArray.empty, maxMessageSize? := st.maxMessageSize? }
-                  else
-                    .violation .textInvalidUTF8
-                else
-                  .message (st.opcodeFirst?.getD .text) finalData { buffering := false, opcodeFirst? := none, acc := ByteArray.empty, maxMessageSize? := st.maxMessageSize? }
-              else
-                .continue { st with acc := newAcc }
-          | none =>
-              if f.header.fin then
-                let finalData := newAcc
-                if st.opcodeFirst? = some .text then
-                  if validateUTF8 finalData then
-                    .message (st.opcodeFirst?.getD .text) finalData { buffering := false, opcodeFirst? := none, acc := ByteArray.empty, maxMessageSize? := st.maxMessageSize? }
-                  else
-                    .violation .textInvalidUTF8
-                else
-                  .message (st.opcodeFirst?.getD .text) finalData { buffering := false, opcodeFirst? := none, acc := ByteArray.empty, maxMessageSize? := st.maxMessageSize? }
-              else
-                .continue { st with acc := newAcc }
-        else
-          .violation .unexpectedContinuation
+          if sizeExceeded newAcc.size then .violation .oversizedMessage
+          else if f.header.fin then finishMessage (st.opcodeFirst?.getD .text) newAcc
+          else .continue { st with acc := newAcc, fragmentCount := nextFragmentCount }
     | .text | .binary =>
-        if st.buffering then
-          -- A new data frame starting while another fragmented message in progress
-          .violation .fragmentSequenceError
+        if st.buffering then .violation .fragmentSequenceError
         else if f.header.fin then
-          if f.header.opcode = .text then
-            if validateUTF8 f.payload then
-              match st.maxMessageSize? with
-              | some lim => if f.payload.size > lim then .violation .oversizedMessage else .message f.header.opcode f.payload st
-              | none => .message f.header.opcode f.payload st
-            else
-              .violation .textInvalidUTF8
-          else
-            match st.maxMessageSize? with
-            | some lim => if f.payload.size > lim then .violation .oversizedMessage else .message f.header.opcode f.payload st
-            | none => .message f.header.opcode f.payload st
-        else
-          -- Start a fragmented sequence
-          match st.maxMessageSize? with
-          | some lim =>
-              if f.payload.size > lim then
-                .violation .oversizedMessage
-              else
-                .continue { buffering := true, opcodeFirst? := some f.header.opcode, acc := f.payload, maxMessageSize? := st.maxMessageSize? }
-          | none =>
-              .continue { buffering := true, opcodeFirst? := some f.header.opcode, acc := f.payload, maxMessageSize? := st.maxMessageSize? }
+          if sizeExceeded f.payload.size then .violation .oversizedMessage
+          else finishMessage f.header.opcode f.payload
+        else if fragmentLimitExceeded then .violation .tooManyFragments
+        else if sizeExceeded f.payload.size then .violation .oversizedMessage
+        else .continue { buffering := true, opcodeFirst? := some f.header.opcode, acc := f.payload,
+                         fragmentCount := 1, maxMessageSize? := st.maxMessageSize?, maxFragments? := st.maxFragments? }
     | .close =>
         match parseClosePayload f.payload with
         | some _ => .message f.header.opcode f.payload st

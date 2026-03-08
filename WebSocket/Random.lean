@@ -39,11 +39,9 @@ def randomMaskingKeyIO : IO MaskingKey := do
     if bs.size = 4 then
       pure { b0 := bs.get! 0, b1 := bs.get! 1, b2 := bs.get! 2, b3 := bs.get! 3 }
     else
-      pure { b0 := 0, b1 := 0, b2 := 0, b3 := 0 }
-  catch _ =>
-    -- fallback deterministic
-    let (_, k) := RNG.maskingKey { state := 0x12345678 }
-    pure k
+      throw <| IO.userError "getrandom returned insufficient bytes"
+  catch e =>
+    throw <| IO.userError s!"Failed to generate secure masking key: {e}"
 
 /-- Deterministic (legacy) masking key kept for compatibility / tests needing determinism. -/
 def randomMaskingKey (seed : Nat) : MaskingKey :=
@@ -56,10 +54,7 @@ def secureWebSocketKey : IO String := do
   try
     let bs ← randomBytesImpl 16
     pure (WebSocket.Crypto.base64Encode bs)
-  catch _ =>
-    -- fallback: deterministic 16 bytes
-    let arr : Array UInt8 := (List.range 16 |>.map (fun i => UInt8.ofNat i)).toArray
-    let seed := ByteArray.mk arr
-    pure (WebSocket.Crypto.base64Encode seed)
+  catch e =>
+    throw <| IO.userError s!"Failed to generate secure WebSocket key: {e}"
 
 end WebSocket

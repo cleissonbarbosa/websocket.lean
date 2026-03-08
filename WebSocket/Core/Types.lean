@@ -62,6 +62,7 @@ inductive ProtocolViolation
   | textInvalidUTF8
   | invalidClosePayload
   | oversizedMessage
+  | tooManyFragments
   | fragmentSequenceError
   deriving Repr, DecidableEq
 
@@ -75,6 +76,7 @@ instance : ToString ProtocolViolation where
     | ProtocolViolation.textInvalidUTF8 => "invalid UTF-8 in text message"
     | ProtocolViolation.invalidClosePayload => "invalid close frame payload"
     | ProtocolViolation.oversizedMessage => "message too large"
+    | ProtocolViolation.tooManyFragments => "too many fragments in message"
     | ProtocolViolation.fragmentSequenceError => "fragmentation sequence error"
 
 instance : Repr ByteArray where reprPrec b _ := s!"#ByteArray({b.size} bytes)"
@@ -107,6 +109,7 @@ def _protocolViolationConstructors : List ProtocolViolation := [
   ProtocolViolation.textInvalidUTF8,
   ProtocolViolation.invalidClosePayload,
   ProtocolViolation.oversizedMessage,
+  ProtocolViolation.tooManyFragments,
   ProtocolViolation.fragmentSequenceError
 ]
 

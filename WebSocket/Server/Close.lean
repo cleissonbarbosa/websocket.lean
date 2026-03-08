@@ -5,6 +5,8 @@ Authors: Cleisson Barbosa
 -/
 
 import WebSocket
+import WebSocket.Metrics
+import WebSocket.Backpressure
 import WebSocket.Server.Types
 open WebSocket
 
@@ -69,46 +71,43 @@ def handleIncomingClose (server : ServerState) (connId : Nat) (payload : ByteArr
   match server.connections.find? (·.id = connId) with
   | none => return server
   | some connState =>
-  -- Parse payload (currently ignored in simplified close echo)
-  let _ := parseClosePayload payload
+      -- Parse payload (currently ignored in simplified close echo)
+      let _ := parseClosePayload payload
 
-    -- If we haven't sent a close frame yet, send one back
-    if config.sendCloseFrame then
-      -- Echo normal closure regardless (simplified); could inspect parsed info if needed
-      let closeFrame := buildCloseFrame .normalClosure ""
-      let c : Conn := (connState.conn : Conn)
-      try
-        c.transport.send (encodeFrame closeFrame)
-      catch _ => pure ()
+      -- If we haven't sent a close frame yet, send one back
+      if config.sendCloseFrame then
+        -- Echo normal closure regardless (simplified); could inspect parsed info if needed
+        let closeFrame := buildCloseFrame .normalClosure ""
+        let c : Conn := (connState.conn : Conn)
+        try
+          c.transport.send (encodeFrame closeFrame)
+        catch _ => pure ()
 
-    -- Close the connection immediately after responding
-    try
-      let c : Conn := (connState.conn : Conn)
-      c.transport.close
-    catch _ => pure ()
-
-    let newConns := server.connections.filter (·.id ≠ connId)
-    return { server with connections := newConns }
-
-/-- Check for close timeouts and finalize connections -/
-def processCloseTimeouts (server : ServerState) (_ : CloseConfig := {}) : IO ServerState := do
-  let currentTime ← IO.monoNanosNow
-  let _ := UInt64.ofNat (currentTime / 1000000)  -- currentTimeMs for future use
-
-  let mut newConns : List ConnectionState := []
-  for connState in server.connections do
-    -- This would check actual close state if we extended ConnectionState
-    -- For now, just close inactive connections after timeout
-    if ¬ connState.active then
-      -- Simulate timeout check - in real implementation would check closeState.startTime
+      -- Close the connection immediately after responding
       try
         let c : Conn := (connState.conn : Conn)
         c.transport.close
       catch _ => pure ()
-      -- Don't add to newConns (remove it)
+
+      WebSocket.Metrics.connectionClosed
+      WebSocket.bpUnregister connId
+
+      let newConns := server.connections.filter (·.id ≠ connId)
+      return { server with connections := newConns }
+
+/-- Check for close timeouts and finalize connections -/
+def processCloseTimeouts (server : ServerState) (_ : CloseConfig := {}) : IO ServerState := do
+  let mut newConns : List ConnectionState := []
+  for connState in server.connections do
+    if !connState.active then
+      try
+        let c : Conn := (connState.conn : Conn)
+        c.transport.close
+      catch _ => pure ()
+      WebSocket.Metrics.connectionClosed
+      WebSocket.bpUnregister connState.id
     else
       newConns := connState :: newConns
-
   return { server with connections := newConns }
 
 end WebSocket.Server.Close

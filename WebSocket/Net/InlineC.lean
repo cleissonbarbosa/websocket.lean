@@ -14,6 +14,7 @@ alloy c section
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/random.h>
@@ -54,7 +55,7 @@ lean_obj_res ws_listen(uint32_t port)
     close(fd);
     return mk_io_error_from_errno(e);
   }
-  if (listen(fd, 16) < 0)
+  if (listen(fd, 128) < 0)
   {
     int e = errno;
     close(fd);
@@ -69,8 +70,36 @@ lean_obj_res ws_accept(uint32_t listen_fd)
   int cfd = accept((int)listen_fd, NULL, NULL);
   if (cfd < 0)
     return mk_io_error_from_errno(errno);
+  int keepalive = 1;
+  setsockopt(cfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
   set_nonblocking(cfd);
   return lean_io_result_mk_ok(lean_box(cfd));
+}
+
+lean_obj_res ws_peer_addr(uint32_t fd)
+{
+  struct sockaddr_storage addr;
+  socklen_t addr_len = sizeof(addr);
+  char host[INET6_ADDRSTRLEN];
+  memset(&addr, 0, sizeof(addr));
+  memset(host, 0, sizeof(host));
+
+  if (getpeername((int)fd, (struct sockaddr *)&addr, &addr_len) < 0)
+    return mk_io_error_from_errno(errno);
+
+  if (addr.ss_family == AF_INET) {
+    struct sockaddr_in *addr4 = (struct sockaddr_in *)&addr;
+    if (!inet_ntop(AF_INET, &addr4->sin_addr, host, sizeof(host)))
+      return mk_io_error_from_errno(errno);
+  } else if (addr.ss_family == AF_INET6) {
+    struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&addr;
+    if (!inet_ntop(AF_INET6, &addr6->sin6_addr, host, sizeof(host)))
+      return mk_io_error_from_errno(errno);
+  } else {
+    return lean_io_result_mk_error(lean_mk_string("unsupported address family"));
+  }
+
+  return lean_io_result_mk_ok(lean_mk_string(host));
 }
 
 lean_obj_res ws_close(uint32_t fd)
@@ -122,10 +151,18 @@ lean_obj_res ws_set_nonblocking(uint32_t fd) {
 lean_obj_res ws_send_bytes(uint32_t fd, lean_object *ba)
 {
   size_t n = lean_sarray_size(ba);
-  ssize_t sent = send((int)fd, lean_sarray_cptr(ba), n, 0);
-  if (sent < 0)
-    return mk_io_error_from_errno(errno);
-  return lean_io_result_mk_ok(lean_box((unsigned)sent));
+  uint8_t *ptr = lean_sarray_cptr(ba);
+  size_t total_sent = 0;
+  while (total_sent < n) {
+    ssize_t sent = send((int)fd, ptr + total_sent, n - total_sent, MSG_NOSIGNAL);
+    if (sent < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return lean_io_result_mk_ok(lean_box((unsigned)total_sent));
+      return mk_io_error_from_errno(errno);
+    }
+    total_sent += (size_t)sent;
+  }
+  return lean_io_result_mk_ok(lean_box((unsigned)total_sent));
 }
 
 lean_obj_res ws_connect(b_lean_obj_arg host, uint32_t port) {
@@ -148,16 +185,13 @@ lean_obj_res ws_connect(b_lean_obj_arg host, uint32_t port) {
   return lean_io_result_mk_ok(lean_box(fd));
 }
 
-// NOTE: Simplified to Linux getrandom only to avoid parsing issues with the identifier 'open'
-// inside the alloy c section (previous fallback used open()/read()). If portability to
-// non-Linux systems is required later, reintroduce a guarded #ifndef __linux__ path using
-// different variable names or wrapped in an inline function to avoid Alloy parser conflicts.
+// Using Linux getrandom exclusively for now.
 lean_obj_res ws_random_bytes(size_t n) {
   lean_object *ba = lean_alloc_sarray(sizeof(uint8_t), n, n);
   ssize_t got = getrandom(lean_sarray_cptr(ba), n, 0);
   if (got < 0 || (size_t)got != n) {
     lean_dec_ref(ba);
-    return mk_io_error_from_errno(errno);
+    return lean_io_result_mk_error(lean_mk_string("random error"));
   }
   return lean_io_result_mk_ok(ba);
 }

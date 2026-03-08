@@ -77,8 +77,7 @@ def processMessages (client : ClientState) : IO (ClientState × List ClientEvent
         return (newClient, [.disconnected none "Connection closed"])
       else
         let abstractConn : Conn := (tcpConn : Conn)
-        let (newConn, events) ← WebSocket.handleIncoming abstractConn bytes
-        let newTcpConn : TcpConn := { tcpConn with assembler := newConn.assembler, pingState := newConn.pingState }
+        let (newTcpConn, events, _) ← WebSocket.Net.stepTcp tcpConn (some { conn := abstractConn, buffer := tcpConn.buffer })
         let newClient := { client with conn := some newTcpConn }
         let clientEvents := events.foldl (fun acc (opc,payload) =>
           if opc = .pong then ClientEvent.pong payload :: acc

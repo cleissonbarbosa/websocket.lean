@@ -5,24 +5,30 @@ Authors: Cleisson Barbosa
 -/
 
 import WebSocket
+import WebSocket.Client
 import WebSocket.Log
-open WebSocket
+open WebSocket WebSocket.Client
 
-/-- Placeholder client that would connect to a WebSocket endpoint.
-Currently only demonstrates frame encode/decode roundtrip locally.
--/
-
-def demoRoundtrip : IO Unit := do
-  -- Build a small text payload and mask it (simulating a client-to-server frame).
-  let payload := ByteArray.mk #[UInt8.ofNat 'H'.toNat, UInt8.ofNat 'i'.toNat]
-  let key : MaskingKey := { b0:=0x01, b1:=0x02, b2:=0x03, b3:=0x04 }
-  let frame : Frame := { header := { opcode := .text, masked := true, payloadLen := payload.size }, maskingKey? := some key, payload }
-  let encoded := encodeFrame frame
-  match decodeFrame encoded with
-  | some res =>
-      let decoded := res.frame.payload
-      let asString := (String.fromUTF8? decoded).getD "<invalid utf8>"
-      WebSocket.log .info s!"Decoded frame: opcode={res.frame.header.opcode}, len={decoded.size}, text=\"{asString}\""
-  | none => WebSocket.log .error "Decode failed"
-
-def main : IO Unit := demoRoundtrip
+def main : IO Unit := do
+  let config : ClientConfig := {
+    host := "localhost",
+    port := 9001,
+    resource := "/"
+  }
+  let client := mkClient config
+  let (client', event?) ← connect client
+  match event? with
+  | some .connected =>
+    WebSocket.log .info "Connected to server"
+    let client'' ← sendText client' "Hello, WebSocket!"
+    let (_, events) ← processMessages client''
+    for ev in events do
+      match ev with
+      | .message _ payload => WebSocket.log .info s!"Received: {String.fromUTF8! payload}"
+      | .disconnected _ reason => WebSocket.log .info s!"Disconnected: {reason}"
+      | .error err => WebSocket.log .error s!"Error: {err}"
+      | _ => pure ()
+  | some (.error err) =>
+    WebSocket.log .error s!"Connection failed: {err}"
+  | _ =>
+    WebSocket.log .error "Unexpected event"

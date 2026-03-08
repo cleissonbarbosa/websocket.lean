@@ -19,3 +19,9 @@ lake-packages/
 .DS_Store
 .idea/
 .vscode/
+
+# Ignore test certificates
+WebSocket/Tests/certs/*
+
+# Ignore local OpenSSL build (if any)
+vendor/openssl/

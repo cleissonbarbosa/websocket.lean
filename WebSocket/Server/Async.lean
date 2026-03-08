@@ -9,6 +9,8 @@ import WebSocket.Server.Types
 import WebSocket.Server.Accept
 import WebSocket.Server.Process
 import WebSocket.Server.Close
+import WebSocket.Server.Messaging
+import WebSocket.Backpressure
 open WebSocket
 
 namespace WebSocket.Server.Async
@@ -17,6 +19,7 @@ open WebSocket.Server.Types
 open WebSocket.Server.Accept
 open WebSocket.Server.Process
 open WebSocket.Server.Close
+open WebSocket.Server.Messaging
 
 /-- Connection task state for async processing -/
 structure ConnectionTask where
@@ -109,14 +112,33 @@ partial def runAsyncServer (server : AsyncServerState) (handler : EventHandler) 
   -- Continue loop
   runAsyncServer currentServer handler
 
-/-- Stop the async server gracefully -/
+/-- Stop the async server gracefully with connection draining -/
 def stopAsyncServer (server : AsyncServerState) : IO Unit := do
   server.shouldStop.set true
-  -- Initiate close for all connections
+
+  WebSocket.log .info "Initiating graceful shutdown..."
+
+  -- Stop accepting new connections first
+  server.shouldStop.set true
+
+  -- Graceful drain: aguarda in-flight reduzir a zero (timeout curto)
+  let drained ← WebSocket.bpWaitForDrain 2000
+  if !drained then
+    WebSocket.log .warn "Drain timeout; forcing close"
+
+  -- Now initiate close for all connections
   for task in server.tasks do
     if task.active then
-      let _ ← initiateClose server.base task.connId
+      let _ ← WebSocket.Server.Close.initiateClose server.base task.connId
       pure ()
+
+  -- Wait a bit for close frames to be sent
+  IO.sleep 1000  -- 1 second
+
+  -- Force close any remaining connections
+  stop server.base
+
+  WebSocket.log .info "Graceful shutdown completed"
 
 /-- Variant of the async loop that keeps an IO.Ref with the latest server state updated.
     This allows external handlers (that capture the ref) to observe newly accepted connections

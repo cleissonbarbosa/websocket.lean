@@ -17,7 +17,7 @@ namespace MaskingKey
     let mut out := ByteArray.empty
     for i in [:data.size] do out := out.push (k.applyByte i (data.get! i))
     out
-  axiom apply_involutive (k : MaskingKey) (data : ByteArray) : k.apply (k.apply data) = data
+
 end MaskingKey
 
 def validateFrame (f : Frame) : Option ProtocolViolation :=

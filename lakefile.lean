@@ -8,48 +8,28 @@ import Lake
 open Lake DSL System
 
 /-!
-Manual TLS (OpenSSL) build support.
+TLS (OpenSSL) support — runtime detection via dlopen.
 
-TLS is disabled by default. To enable it, edit this file and set:
+TLS is always available at build time. At runtime, the library tries to load
+`libssl.so` / `libcrypto.so` dynamically — if OpenSSL is installed on the host
+the TLS functions work; otherwise they return a descriptive error.
 
-- `enableTLS := true`
-- `localOpenSSL? := some "vendor/openssl"` if you want to link against a local build
+No build-time toggle, no rebuild needed. Just install OpenSSL to enable TLS:
 
-If TLS is disabled, stub C functions are compiled instead (see
-`WebSocket/Net/TLSInlineC.lean`) so the rest of the code continues to build.
+    # Debian / Ubuntu
+    sudo apt install libssl-dev
 
-You can build a local OpenSSL via `scripts/build_openssl.sh`, which installs into
-`vendor/openssl` by default unless `OPENSSL_PREFIX` is overridden.
+    # or point LD_LIBRARY_PATH to a custom OpenSSL prefix
+    LD_LIBRARY_PATH=/path/to/openssl/lib ./your-server
 
 For production use, prefer validated TLS enablement or a TLS-terminating reverse
 proxy instead of running unencrypted WebSocket traffic directly.
 -/
--- NOTE: Lake configuration runs in a pure context; to avoid fragile unsafe IO here
--- we keep a simple manual toggle. Set to true to attempt TLS (OpenSSL) linkage.
--- For environment driven builds, you can patch this file in automation or inject
--- -DWEBSOCKET_TLS plus link args manually (see README TLS section).
--- WARNING: TLS is disabled by default for compatibility. Enable for production!
--- Set to true to enable TLS support with OpenSSL
-def enableTLS : Bool := false
 
--- Optional path prefix to a locally built OpenSSL (containing lib/libssl.a etc.).
--- Leave as none to rely on system libraries when TLS is enabled.
--- Using system OpenSSL by default (set to `some "vendor/openssl"` to use local build)
-def localOpenSSL? : Option String := none
+def commonLeancArgs : Array String := #["-fPIC"]
 
-def commonLeancArgs : Array String :=
-  #["-fPIC"] ++ (if enableTLS then #["-DWEBSOCKET_TLS"] else #[])
-
-def commonLinkArgs : Array String :=
-  if enableTLS then
-    match localOpenSSL? with
-    | some root =>
-        -- Static link against locally built libs (order matters for some linkers)
-        #[(s!"{root}/lib/libssl.a"), (s!"{root}/lib/libcrypto.a"), "-ldl", "-lpthread", "-lz"]
-    | none =>
-      -- Prefer standard linker flags for system OpenSSL.
-      #["-lssl", "-lcrypto", "-ldl", "-lpthread", "-lz"]
-  else #[]
+-- -ldl is needed for dlopen (runtime OpenSSL loading)
+def commonLinkArgs : Array String := #["-ldl"]
 
 require alloy from git "https://github.com/tydeu/lean4-alloy" @ "master"
 

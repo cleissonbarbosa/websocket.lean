@@ -7,6 +7,7 @@ Authors: Cleisson Barbosa
 import WebSocket
 import WebSocket.Server
 import WebSocket.Server.Types
+import WebSocket.Server.Async
 import WebSocket.Tests.Util
 open WebSocket WebSocket.Server WebSocket.Tests
 
@@ -56,12 +57,45 @@ def testServerState : IO Unit := do
 
   IO.println "Server state test passed"
 
+/-- Test that a non-blocking accept with no pending client is treated as idle, not as an error. -/
+def testIdleAccept : IO Unit := do
+  let server ← start (mkServer { port := 0, logConnections := false })
+  let (server', ev?) ← acceptConnection server
+  stop server'
+  match ev? with
+  | none =>
+      IO.println "Idle accept test passed"
+  | some (.error _ msg) =>
+      throw <| IO.userError s!"Expected no error when no client is pending, got: {msg}"
+  | some ev =>
+      throw <| IO.userError s!"Expected no event when no client is pending, got: {repr ev}"
+
+/-- Test that stale async tasks are dropped instead of emitting repeated connection-not-found errors. -/
+def testAsyncDropsStaleTasks : IO Unit := do
+  let stopRef ← IO.mkRef false
+  let asyncServer : WebSocket.Server.Async.AsyncServerState := {
+    base := mkServer { port := 0 }
+    tasks := [{ connId := 1, active := true, lastActivity := 0 }]
+    shouldStop := stopRef
+  }
+  let eventsRef ← IO.mkRef ([] : List ServerEvent)
+  let handler : EventHandler := fun ev => eventsRef.modify (fun events => ev :: events)
+  let updated ← WebSocket.Server.Async.processAllConnections asyncServer handler
+  let events ← eventsRef.get
+  if !updated.tasks.isEmpty then
+    throw <| IO.userError "Expected stale async task list to be emptied"
+  if !events.isEmpty then
+    throw <| IO.userError "Expected no events when processing stale async tasks"
+  IO.println "Async stale task cleanup test passed"
+
 /-- Run all integration tests -/
 def run : IO Unit := do
   IO.println "Running integration tests..."
   testServerCreation
   testEventCreation
   testServerState
+  testIdleAccept
+  testAsyncDropsStaleTasks
   IO.println "All integration tests passed"
 
 end WebSocket.Tests.Integration

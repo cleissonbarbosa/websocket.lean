@@ -126,15 +126,19 @@ Most users should start with `enhancedEchoServer` or `chatServer` when exploring
 
 ## TLS status
 
-TLS support exists through the OpenSSL FFI layer in `WebSocket/Net/TLSInlineC.lean`, but it is disabled by default in the current build configuration.
+TLS support uses runtime detection via `dlopen` — OpenSSL is loaded dynamically when needed. No build-time toggle or rebuild is required.
 
-Today, enabling TLS is a manual build-time choice in `lakefile.lean`:
+If OpenSSL (`libssl.so` + `libcrypto.so`) is installed on the host, TLS functions work automatically. Otherwise they return a descriptive error and everything else keeps working.
 
-- Set `enableTLS` to `true`.
-- Optionally set `localOpenSSL?` if you want to link against a local OpenSSL build in `vendor/openssl`.
-- Rebuild the project.
+To enable TLS at runtime:
 
-If TLS is not enabled at build time, the TLS functions are compiled as stubs and return an error.
+- Install OpenSSL: `sudo apt install libssl-dev` (Debian/Ubuntu) or equivalent.
+- Or point `LD_LIBRARY_PATH` to a custom OpenSSL prefix: `LD_LIBRARY_PATH=/path/to/openssl/lib ./your-server`.
+- Use `WebSocket.Net.tlsAvailableImpl` to check at runtime whether TLS is available.
+
+No changes to `lakefile.lean` are needed. The same binary works with or without OpenSSL installed.
+
+If TLS is not available at runtime, the TLS functions return an error.
 
 For production deployments, a TLS-terminating reverse proxy is still the safer default unless you are explicitly validating the OpenSSL path and runtime behavior in your environment.
 
@@ -154,7 +158,7 @@ Implemented and exercised in code:
 Current limitations:
 
 - The project is still beta.
-- TLS is optional and disabled by default.
+- TLS is detected at runtime via dlopen (no rebuild needed).
 - Native TLS support should be treated as experimental.
 - Extension support is not comprehensive beyond parsing and validation hooks.
 - More stress, interoperability, and long-run testing would still be useful.

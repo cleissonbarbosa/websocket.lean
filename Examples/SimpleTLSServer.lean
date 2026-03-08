@@ -5,7 +5,7 @@ Exemplo simplificado de servidor WebSocket com TLS usando a infraestrutura exist
 
 Pré-requisitos:
 1. Certificados: ./scripts/make_test_certs.sh
-2. TLS habilitado: enableTLS := true em lakefile.lean
+2. OpenSSL instalado: apt install libssl-dev
 
 Teste:
   wscat --connect wss://localhost:9443 --no-check
@@ -48,12 +48,11 @@ def main : IO Unit := do
   match server'.tlsCtx? with
   | none =>
     WebSocket.error "TLS não foi inicializado. Verifique:"
-    WebSocket.error "1. enableTLS := true em lakefile.lean"
-    WebSocket.error "2. OpenSSL está instalado"
-    WebSocket.error "3. Recompile com: lake clean && lake build"
+    WebSocket.error "1. OpenSSL está instalado (apt install libssl-dev)"
+    WebSocket.error "2. Certificados existem (./scripts/make_test_certs.sh)"
     return
-  | some ctx =>
-    WebSocket.info s!"✅ Contexto TLS inicializado (ctx={ctx})"
+  | some _ =>
+    WebSocket.info "✅ Contexto TLS inicializado"
     WebSocket.info s!"✅ Servidor escutando em wss://localhost:{config.port}"
     WebSocket.info ""
     WebSocket.info "Para testar:"

@@ -34,7 +34,7 @@ static int set_nonblocking(int fd) {
 static lean_object *mk_io_error_from_errno(int err)
 {
   lean_object *msg = lean_mk_string(err == 0 ? "socket error" : strerror(err));
-  return lean_io_result_mk_error(msg);
+  return lean_io_result_mk_error(lean_mk_io_user_error(msg));
 }
 
 lean_obj_res ws_listen(uint32_t port)
@@ -76,6 +76,20 @@ lean_obj_res ws_accept(uint32_t listen_fd)
   return lean_io_result_mk_ok(lean_box(cfd));
 }
 
+lean_obj_res ws_accept_try(uint32_t listen_fd)
+{
+  int cfd = accept((int)listen_fd, NULL, NULL);
+  if (cfd < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      return lean_io_result_mk_ok(lean_box((uint32_t)-1));
+    return mk_io_error_from_errno(errno);
+  }
+  int keepalive = 1;
+  setsockopt(cfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+  set_nonblocking(cfd);
+  return lean_io_result_mk_ok(lean_box(cfd));
+}
+
 lean_obj_res ws_peer_addr(uint32_t fd)
 {
   struct sockaddr_storage addr;
@@ -96,7 +110,7 @@ lean_obj_res ws_peer_addr(uint32_t fd)
     if (!inet_ntop(AF_INET6, &addr6->sin6_addr, host, sizeof(host)))
       return mk_io_error_from_errno(errno);
   } else {
-    return lean_io_result_mk_error(lean_mk_string("unsupported address family"));
+    return lean_mk_io_user_error(lean_mk_string("unsupported address family"));
   }
 
   return lean_io_result_mk_ok(lean_mk_string(host));
@@ -130,8 +144,7 @@ lean_obj_res ws_recv_bytes(uint32_t fd, size_t max)
   if (r == 0)
   {
     lean_dec_ref(ba);
-    lean_object *empty = lean_alloc_sarray(sizeof(uint8_t), 0, 0);
-    return lean_io_result_mk_ok(empty);
+    return lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string("eof")));
   }
   if ((size_t)r < max)
   {
@@ -191,7 +204,7 @@ lean_obj_res ws_random_bytes(size_t n) {
   ssize_t got = getrandom(lean_sarray_cptr(ba), n, 0);
   if (got < 0 || (size_t)got != n) {
     lean_dec_ref(ba);
-    return lean_io_result_mk_error(lean_mk_string("random error"));
+    return lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string("random error")));
   }
   return lean_io_result_mk_ok(ba);
 }
@@ -205,7 +218,7 @@ lean_obj_res ws_now_iso8601() {
     tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
     tmv.tm_hour, tmv.tm_min, tmv.tm_sec, ms);
   if (n < 0) {
-    return lean_io_result_mk_error(lean_mk_string("timestamp format error"));
+    return lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string("timestamp format error")));
   }
   return lean_io_result_mk_ok(lean_mk_string(buf));
 }

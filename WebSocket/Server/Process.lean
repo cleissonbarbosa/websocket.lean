@@ -36,36 +36,32 @@ def processConnection (server : ServerState) (connId : Nat) : IO (ServerState ×
           let newConns := server.connections.filter (·.id ≠ connId)
           return ({ server with connections := newConns }, [.disconnected connId "idle timeout"])
       let baseConn : Conn := (connState.conn : Conn)
-      let bytes ← baseConn.transport.recv
-      if bytes.size = 0 then
+      -- Let stepTcp handle recv + frame parsing in a single step
+      let (newConn, events, _) ← WebSocket.Net.stepTcp connState.conn (some { conn := baseConn, buffer := connState.conn.buffer })
+      if events.isEmpty then
+        -- No data available (EAGAIN) - update conn state but emit no events
+        let updatedConnState := { connState with conn := newConn }
+        let newConns := server.connections.map (fun c => if c.id = connId then updatedConnState else c)
+        return ({ server with connections := newConns }, [])
+      for (opc, payload) in events do
+        if opc = .text || opc = .binary then
+          WebSocket.Metrics.messageReceived
+          WebSocket.Metrics.frameReceived payload.size
+        if opc = .close then
+          WebSocket.Metrics.connectionClosed
+      let updatedConnState := { connState with conn := newConn, lastActivityMs := nowMs }
+      let newConns := server.connections.map (fun c => if c.id = connId then updatedConnState else c)
+      let newServer := { server with connections := newConns }
+      if events.any (fun (opc, _) => opc = .close) then
         try
           baseConn.transport.close
         catch _ => pure ()
-        WebSocket.Metrics.connectionClosed
         WebSocket.bpUnregister connId
-        let newConns := server.connections.filter (·.id ≠ connId)
-        return ({ server with connections := newConns }, [.disconnected connId "peer closed connection"])
-      else
-        WebSocket.Metrics.frameReceived bytes.size
-        let (newConn, events, _) ← WebSocket.Net.stepTcp connState.conn (some { conn := baseConn, buffer := connState.conn.buffer })
-        let updatedConnState := { connState with conn := newConn, lastActivityMs := nowMs }
-        let newConns := server.connections.map (fun c => if c.id = connId then updatedConnState else c)
-        let newServer := { server with connections := newConns }
-        for (opc, _payload) in events do
-          if opc = .text || opc = .binary then
-            WebSocket.Metrics.messageReceived
-          if opc = .close then
-            WebSocket.Metrics.connectionClosed
-        if events.any (fun (opc, _) => opc = .close) then
-          try
-            baseConn.transport.close
-          catch _ => pure ()
-          WebSocket.bpUnregister connId
-          let remaining := newServer.connections.filter (·.id ≠ connId)
-          let serverEvents := events.map (fun (opc, payload) => ServerEvent.message connId opc payload) ++ [.disconnected connId "close frame received"]
-          return ({ newServer with connections := remaining }, serverEvents)
-        let serverEvents := events.map (fun (opc, payload) => ServerEvent.message connId opc payload)
-        return (newServer, serverEvents)
+        let remaining := newServer.connections.filter (·.id ≠ connId)
+        let serverEvents := events.map (fun (opc, payload) => ServerEvent.message connId opc payload) ++ [.disconnected connId "close frame received"]
+        return ({ newServer with connections := remaining }, serverEvents)
+      let serverEvents := events.map (fun (opc, payload) => ServerEvent.message connId opc payload)
+      return (newServer, serverEvents)
     catch e =>
       WebSocket.Metrics.connectionClosed
       WebSocket.bpUnregister connId
@@ -75,6 +71,9 @@ def processConnection (server : ServerState) (connId : Nat) : IO (ServerState ×
       catch _ => pure ()
       let newConns := server.connections.filter (·.id ≠ connId)
       let newServer := { server with connections := newConns }
+      let errMsg := toString e
+      if errMsg == "eof" then
+        return (newServer, [.disconnected connId "peer closed connection"])
       return (newServer, [.error connId s!"Connection error: {e}"])
 
 end WebSocket.Server.Process
